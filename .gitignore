@@ -1,0 +1,12 @@
+# .gitignore
+settings.json
+test_results.json
+__pycache__/
+*.pyc
+venv/
+node_modules/
+dist/
+build/
+.vscode/
+.idea/
+*.log
