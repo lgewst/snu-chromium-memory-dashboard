@@ -156,8 +156,34 @@ body {
 .sidebar-footer {
     padding: 15px;
     text-align: center;
-    font-size: 0.8em;
+    font-size: 0.75rem;
     border-top: 1px solid rgba(255,255,255,0.1);
+    color: #95a5a6;
+}
+
+.sidebar-footer p {
+    margin: 4px 0;
+}
+
+.sidebar-footer .copyright {
+    line-height: 1.4;
+}
+
+.sidebar-footer .license {
+    font-style: italic;
+    opacity: 0.7;
+}
+
+.sidebar.collapsed .sidebar-footer .menu-text,
+.sidebar.collapsed .sidebar-footer .copyright,
+.sidebar.collapsed .sidebar-footer .license {
+    display: none;
+}
+
+.sidebar.collapsed .sidebar-footer::after {
+    content: "©";
+    font-size: 1.2rem;
+    opacity: 0.5;
 }
 
 /* Main Content */

@@ -98,14 +98,18 @@ document.addEventListener('DOMContentLoaded', () => {
             // Then find the median of those peak values across all iterations.
             const allIterationPeaks = [];
             res.memory_results.forEach(iter => {
-                Object.values(iter.urls).forEach(urlData => {
-                    // urlData is now {peak: X, all: [...]}
-                    if (urlData && urlData.peak) {
-                        allIterationPeaks.push(urlData.peak);
-                    } else if (typeof urlData === 'number') {
-                        allIterationPeaks.push(urlData); // Fallback for old data
-                    }
-                });
+                if (iter.urls) {
+                    Object.values(iter.urls).forEach(urlData => {
+                        // Priority: New 'peak' field, fallback to old 'all' array, then direct number
+                        if (urlData && urlData.peak !== undefined) {
+                            allIterationPeaks.push(urlData.peak);
+                        } else if (urlData && Array.isArray(urlData.all)) {
+                            allIterationPeaks.push(Math.max(...urlData.all));
+                        } else if (typeof urlData === 'number') {
+                            allIterationPeaks.push(urlData);
+                        }
+                    });
+                }
             });
             
             const medianPeak = calculateMedian(allIterationPeaks).toFixed(2);
@@ -130,13 +134,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const dataPoints = results.map(res => {
             const allIterationPeaks = [];
             res.memory_results.forEach(iter => {
-                Object.values(iter.urls).forEach(urlData => {
-                    if (urlData && urlData.peak) {
-                        allIterationPeaks.push(urlData.peak);
-                    } else if (typeof urlData === 'number') {
-                        allIterationPeaks.push(urlData);
-                    }
-                });
+                if (iter.urls) {
+                    Object.values(iter.urls).forEach(urlData => {
+                        if (urlData && urlData.peak !== undefined) {
+                            allIterationPeaks.push(urlData.peak);
+                        } else if (urlData && Array.isArray(urlData.all)) {
+                            allIterationPeaks.push(Math.max(...urlData.all));
+                        } else if (typeof urlData === 'number') {
+                            allIterationPeaks.push(urlData);
+                        }
+                    });
+                }
             });
             return calculateMedian(allIterationPeaks);
         });

@@ -281,18 +281,18 @@ class ChromiumPipeline:
 
     def _measure_memory_local(self, runtime_flags, repeats):
         """
-        Orchestrates high-frequency Selenium measurements locally using polling.
+        Orchestrates high-frequency Selenium measurements locally using polling and CDP.
         Follows a two-phase protocol:
         Phase 1: Stabilization (X seconds, measures X+1 times)
         Phase 2: Evaluation (Y seconds, measures Y times)
-        Peak value is the maximum of Phase 2.
+        Peak value is the maximum RSS of Phase 2.
 
         Args:
             runtime_flags (list): Chrome command-line arguments.
             repeats (int): Number of iterations.
 
         Returns:
-            list: Collected peak and high-frequency memory results.
+            list: Collected peak, high-frequency memory, and performance results.
         """
         self._update_status(f"Measuring memory locally (Repeats: {repeats})...")
         results = []
@@ -302,8 +302,18 @@ class ChromiumPipeline:
         evaluation_sec = float(self.settings.get('evaluation_seconds', 20))
         interval = float(self.settings.get('measurement_interval', 1.0))
         
+        # Collect device metadata
+        import platform
+        device_info = {
+            "os": platform.system(),
+            "os_release": platform.release(),
+            "cpu": platform.processor(),
+            "machine": platform.machine(),
+            "python_version": platform.python_version()
+        }
+
         for i in range(repeats):
-            iteration_result = {"iteration": i + 1, "urls": {}}
+            iteration_result = {"iteration": i + 1, "urls": {}, "metadata": device_info}
             options = Options()
             options.binary_location = chrome_exe
             if self.settings.get('headless', True): options.add_argument("--headless=new")
@@ -311,55 +321,77 @@ class ChromiumPipeline:
             
             try:
                 driver = webdriver.Chrome(options=options)
+                # Enable CDP Performance Domain
+                driver.execute_cdp_cmd('Performance.enable', {})
+                
                 for url in self.target_urls:
                     self._update_status(f"Local Measure Iter {i+1}/{repeats}: {url}")
                     driver.get(url)
                     
-                    all_measurements = []
-                    evaluation_measurements = []
+                    all_samples = []
+                    evaluation_rss = []
                     
                     start_time = time.time()
                     total_duration = stabilization_sec + evaluation_sec
-                    
-                    # Phase 1: Stabilization + Phase 2: Evaluation
-                    # Total points should be (stabilization_sec / interval) + 1 + (evaluation_sec / interval)
-                    # For 20s + 20s with 1s interval, it's 21 + 20 = 41 points.
                     
                     points_collected = 0
                     expected_points = int((total_duration / interval) + 1)
                     
                     while points_collected < expected_points:
-                        current_elapsed = points_collected * interval
+                        current_target_time = start_time + (points_collected * interval)
+                        
                         # Wait until it's time for the next measurement
-                        while time.time() - start_time < current_elapsed:
-                            time.sleep(0.01)
+                        time_to_wait = current_target_time - time.time()
+                        if time_to_wait > 0:
+                            time.sleep(time_to_wait)
+                        
+                        current_elapsed = points_collected * interval
+                        
+                        # 1. Measure System Memory (RSS)
+                        rss_bytes = self._get_total_memory(driver.service.process.pid)
+                        if rss_bytes > 0:
+                            rss_mb = rss_bytes / (1024 * 1024)
                             
-                        mem = self._get_total_memory(driver.service.process.pid)
-                        if mem > 0:
-                            mem_mb = mem / (1024 * 1024)
-                            all_measurements.append(mem_mb)
+                            # 2. Measure CDP Performance Metrics
+                            try:
+                                cdp_metrics = driver.execute_cdp_cmd('Performance.getMetrics', {})
+                                metrics_dict = {m['name']: m['value'] for m in cdp_metrics['metrics']}
+                            except:
+                                metrics_dict = {}
+
+                            sample = {
+                                "timestamp": time.time(),
+                                "elapsed": current_elapsed,
+                                "rss": rss_mb,
+                                # CDP Metrics
+                                "js_heap_used": metrics_dict.get('JSHeapUsedSize', 0) / (1024 * 1024), # MB
+                                "js_heap_total": metrics_dict.get('JSHeapTotalSize', 0) / (1024 * 1024), # MB
+                                "layout_duration": metrics_dict.get('LayoutDuration', 0),
+                                "task_duration": metrics_dict.get('TaskDuration', 0),
+                                "script_duration": metrics_dict.get('ScriptDuration', 0),
+                                "nodes": metrics_dict.get('Nodes', 0),
+                                "documents": metrics_dict.get('Documents', 0)
+                            }
+                            all_samples.append(sample)
                             
-                            # If we are in evaluation phase (after stabilization_sec)
-                            if current_elapsed > stabilization_sec - (interval / 2):
-                                evaluation_measurements.append(mem_mb)
+                            if current_elapsed > stabilization_sec + (interval / 2):
+                                evaluation_rss.append(rss_mb)
                                 
                         points_collected += 1
                     
-                    if all_measurements:
-                        # Representative peak is from Evaluation phase only
-                        peak_mem = max(evaluation_measurements) if evaluation_measurements else max(all_measurements)
+                    if all_samples:
+                        peak_rss = max(evaluation_rss) if evaluation_rss else max([s['rss'] for s in all_samples])
                         iteration_result["urls"][url] = {
-                            "peak": peak_mem,
-                            "all": all_measurements,
-                            "phase1_count": len(all_measurements) - len(evaluation_measurements),
-                            "phase2_count": len(evaluation_measurements)
+                            "peak": peak_rss,
+                            "samples": all_samples, # Renamed 'all' to 'samples' for clarity
+                            "phase1_count": len(all_samples) - len(evaluation_rss),
+                            "phase2_count": len(evaluation_rss)
                         }
                 driver.quit()
             except Exception as e:
                 print(f"Driver Error: {e}")
                 if 'driver' in locals(): driver.quit()
             
-            # Clean up zombie processes
             os.system("pkill -f chrome || true")
 
             if iteration_result["urls"]:
