@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Memory Usage Dashboard</h1>
+</div>
+
+<div class="controls-card">
+    <div class="controls-row">
+        <button id="startBtn" class="btn btn-primary">Start Measurement</button>
+        <button id="stopBtn" class="btn btn-danger" disabled>Stop Measurement</button>
+    </div>
+    <div id="status" class="status-indicator">Status: Idle</div>
+</div>
+
+<div class="chart-container card">
+    <canvas id="memoryChart"></canvas>
+</div>
+
+<div class="results-table-container card">
+    <h2>Recent Results</h2>
+    <div class="table-responsive">
+        <table id="resultsTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Build Time (s)</th>
+                    <th>Avg Memory (MB)</th>
+                    <th>Build Flags</th>
+                    <th>Runtime Flags</th>
+                    <th>Timestamp</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
