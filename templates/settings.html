@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Project Settings</h1>
+</div>
+
+<div class="settings-container card">
+    <form id="settingsForm">
+        <section class="settings-section">
+            <h3>Local Environment</h3>
+            <div class="form-group">
+                <label>Chromium Source Path (src)</label>
+                <div class="input-with-button">
+                    <input type="text" name="local_chromium_path" id="local_chromium_path">
+                    <button type="button" class="btn btn-secondary browse-btn" data-target="local_chromium_path">Browse</button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Build Path (e.g., out/Default)</label>
+                <input type="text" name="build_path" id="build_path">
+            </div>
+            <div class="form-group">
+                <label>Depot Tools Path</label>
+                <div class="input-with-button">
+                    <input type="text" name="depot_tools_path" id="depot_tools_path">
+                    <button type="button" class="btn btn-secondary browse-btn" data-target="depot_tools_path">Browse</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="settings-section">
+            <h3>Execution Settings</h3>
+            <div class="form-row">
+                <div class="form-group checkbox">
+                    <label><input type="checkbox" name="headless" id="headless"> Headless Mode</label>
+                </div>
+                <div class="form-group checkbox">
+                    <label><input type="checkbox" name="use_ssh" id="use_ssh"> Use SSH (Remote Build)</label>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Repeats per Task</label>
+                    <input type="number" name="default_repeats" id="default_repeats">
+                </div>
+                <div class="form-group">
+                    <label>Stabilization (s)</label>
+                    <input type="number" name="stabilization_seconds" id="stabilization_seconds">
+                </div>
+                <div class="form-group">
+                    <label>Evaluation (s)</label>
+                    <input type="number" name="evaluation_seconds" id="evaluation_seconds">
+                </div>
+                <div class="form-group">
+                    <label>Measure Interval (s)</label>
+                    <input type="number" step="0.1" name="measurement_interval" id="measurement_interval">
+                </div>
+            </div>
+        </section>
+
+        <section id="sshSection" class="settings-section" style="display: none;">
+            <h3>SSH Config (Remote)</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Host</label>
+                    <input type="text" name="ssh_host" id="ssh_host">
+                </div>
+                <div class="form-group">
+                    <label>Port</label>
+                    <input type="number" name="ssh_port" id="ssh_port">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>User</label>
+                    <input type="text" name="ssh_user" id="ssh_user">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" name="ssh_password" id="ssh_password">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Remote Chromium Path (src)</label>
+                    <input type="text" name="ssh_chromium_path" id="ssh_chromium_path">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Remote Build Path (e.g. out/Default)</label>
+                    <input type="text" name="ssh_build_path" id="ssh_build_path">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Remote Depot Tools Path</label>
+                    <input type="text" name="ssh_depot_tools_path" id="ssh_depot_tools_path">
+                </div>
+            </div>
+        </section>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+            <span id="saveStatus"></span>
+        </div>
+    </form>
+</div>
+
+<!-- File Browser Modal -->
+<div id="fileBrowserModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Select Directory</h3>
+            <span class="close-modal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div id="currentPathDisplay" class="current-path"></div>
+            <ul id="fileList" class="file-list"></ul>
+        </div>
+        <div class="modal-footer">
+            <button id="selectDirBtn" class="btn btn-primary">Select Current Folder</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='settings.js') }}"></script>
+{% endblock %}

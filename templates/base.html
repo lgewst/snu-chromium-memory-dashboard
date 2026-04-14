@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chromium Memory Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script>
+        // Inline script to prevent sidebar flicker by applying state before render
+        (function() {
+            if (localStorage.getItem('sidebarCollapsed') === 'true') {
+                document.documentElement.classList.add('sidebar-collapsed-init');
+            }
+        })();
+    </script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="app-container">
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <button id="sidebarToggle" class="toggle-btn">☰</button>
+                <h3 class="sidebar-title">Chromium<br>Memory Dashboard</h3>
+            </div>
+            <ul class="sidebar-menu">
+                <li>
+                    <a href="/" class="{% if request.path == '/' %}active{% endif %}">
+                        <span class="menu-icon">📊</span>
+                        <span class="menu-text">Dashboard</span>
+                    </a>
+                </li>
+                <li class="disabled">
+                    <a>
+                        <span class="menu-icon">🔍</span>
+                        <span class="menu-text">Details (TBD)</span>
+                    </a>
+                </li>
+                <li class="disabled">
+                    <a>
+                        <span class="menu-icon">📈</span>
+                        <span class="menu-text">Statistics (TBD)</span>
+                    </a>
+                </li>
+                <li class="disabled">
+                    <a>
+                        <span class="menu-icon">📋</span>
+                        <span class="menu-text">Task Management (TBD)</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}">
+                        <span class="menu-icon">⚙️</span>
+                        <span class="menu-text">Settings</span>
+                    </a>
+                </li>
+            </ul>
+            <div class="sidebar-footer">
+                <p class="menu-text">v1.0.0</p>
+                <p class="copyright">Copyright © 2026 LGE WEBSTD<br>All rights reserved.</p>
+                <p class="license">Licensed under MIT</p>
+            </div>
+        </nav>
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

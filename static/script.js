@@ -1,10 +1,34 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // Sidebar toggle functionality
+    const sidebar = document.getElementById('sidebar');
+    const toggleBtnSidebar = document.getElementById('sidebarToggle');
+
+    // Remove the init class and apply the proper collapsed class if needed
+    if (document.documentElement.classList.contains('sidebar-collapsed-init')) {
+        sidebar.classList.add('collapsed');
+        document.documentElement.classList.remove('sidebar-collapsed-init');
+    }
+
+    function toggleSidebar() {
+        sidebar.classList.toggle('collapsed');
+        localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
+    }
+
+    if (toggleBtnSidebar) toggleBtnSidebar.onclick = toggleSidebar;
+
     // DOM Element References
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const statusDiv = document.getElementById('status');
     const resultsTableBody = document.querySelector('#resultsTable tbody');
-    const ctx = document.getElementById('memoryChart').getContext('2d');
+    const memoryChartCanvas = document.getElementById('memoryChart');
+    
+    if (!startBtn || !stopBtn || !statusDiv || !resultsTableBody || !memoryChartCanvas) {
+        console.log("Dashboard elements not found, skipping dashboard initialization.");
+        return;
+    }
+
+    const ctx = memoryChartCanvas.getContext('2d');
     
     let memoryChart;
     let lastResultsCount = -1;
@@ -53,6 +77,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
+     * Helper to calculate median of an array.
+     */
+    const calculateMedian = (arr) => {
+        if (!arr.length) return 0;
+        const sorted = [...arr].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    };
+
+    /**
      * Rebuilds the results table with the latest data.
      */
     const updateTable = (results) => {
@@ -60,21 +94,30 @@ document.addEventListener('DOMContentLoaded', () => {
         results.forEach(res => {
             const row = document.createElement('tr');
             
-            // Calculate aggregate average memory across all iterations and URLs
-            let totalMem = 0;
-            let count = 0;
+            // For each iteration, get the peak memory for each URL.
+            // Then find the median of those peak values across all iterations.
+            const allIterationPeaks = [];
             res.memory_results.forEach(iter => {
-                Object.values(iter.urls).forEach(mem => {
-                    totalMem += mem;
-                    count++;
-                });
+                if (iter.urls) {
+                    Object.values(iter.urls).forEach(urlData => {
+                        // Priority: New 'peak' field, fallback to old 'all' array, then direct number
+                        if (urlData && urlData.peak !== undefined) {
+                            allIterationPeaks.push(urlData.peak);
+                        } else if (urlData && Array.isArray(urlData.all)) {
+                            allIterationPeaks.push(Math.max(...urlData.all));
+                        } else if (typeof urlData === 'number') {
+                            allIterationPeaks.push(urlData);
+                        }
+                    });
+                }
             });
-            const avgMem = count > 0 ? (totalMem / count).toFixed(2) : 'N/A';
+            
+            const medianPeak = calculateMedian(allIterationPeaks).toFixed(2);
 
             row.innerHTML = `
                 <td>${res.id}</td>
                 <td>${res.build_time.toFixed(2)}</td>
-                <td>${avgMem}</td>
+                <td>${medianPeak}</td>
                 <td>${res.build_flags.join(' ') || 'None'}</td>
                 <td>${res.runtime_flags.join(' ') || 'None'}</td>
                 <td>${new Date(res.timestamp * 1000).toLocaleString()}</td>
@@ -89,15 +132,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const updateChart = (results) => {
         const labels = results.map(r => r.id);
         const dataPoints = results.map(res => {
-            let totalMem = 0;
-            let count = 0;
+            const allIterationPeaks = [];
             res.memory_results.forEach(iter => {
-                Object.values(iter.urls).forEach(mem => {
-                    totalMem += mem;
-                    count++;
-                });
+                if (iter.urls) {
+                    Object.values(iter.urls).forEach(urlData => {
+                        if (urlData && urlData.peak !== undefined) {
+                            allIterationPeaks.push(urlData.peak);
+                        } else if (urlData && Array.isArray(urlData.all)) {
+                            allIterationPeaks.push(Math.max(...urlData.all));
+                        } else if (typeof urlData === 'number') {
+                            allIterationPeaks.push(urlData);
+                        }
+                    });
+                }
             });
-            return count > 0 ? totalMem / count : 0;
+            return calculateMedian(allIterationPeaks);
         });
 
         // Clear existing chart instance if it exists

@@ -4,7 +4,6 @@ import subprocess
 import time
 import psutil
 import logging
-import textwrap
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import paramiko
@@ -17,6 +16,77 @@ logging.basicConfig(
 )
 
 class ChromiumPipeline:
+    """
+    Orchestrates the build and memory measurement process for Chromium.
+    Supports both local execution and remote execution via SSH.
+    """
+    @staticmethod
+    def load_settings(settings_path='settings.json'):
+        """
+        Loads configuration from a JSON file and merges it with default values.
+        Ensures all required keys exist by performing a recursive deep merge.
+        If the file doesn't exist or is missing fields, it updates the disk with defaults.
+
+        Args:
+            settings_path (str): The path to the settings JSON file. Defaults to 'settings.json'.
+
+        Returns:
+            dict: A complete settings dictionary containing both user-defined and default values.
+        """
+        default_settings = {
+            "local_chromium_path": os.path.abspath(os.path.join(os.getcwd(), "../chromium/src")), # Local path to Chromium 'src'
+            "depot_tools_path": os.path.abspath(os.path.join(os.getcwd(), "../depot_tools")), # Local path to depot_tools
+            "build_path": "out/Default", # Default build output directory
+            "headless": True, # Run browser without visible UI
+            "use_ssh": False, # Enable remote execution via SSH
+            "debug": True, # Write detailed logs to pipeline_debug.log
+            "refresh_log": True, # Clear log file on startup
+            "ssh_config": {
+                "host": "1.1.1.1", # Remote server IP
+                "port": 22, # SSH port
+                "user": "username", # SSH username
+                "password": "", # SSH password
+                "chromium_path": "/home/username/chromium/src", # Remote Chromium 'src' path
+                "build_path": "out/Default", # Remote build directory
+                "depot_tools_path": "/home/username/depot_tools" # Remote depot_tools path
+            },
+            "default_repeats": 5, # Number of repeated measurements per flag combination
+            "stabilization_seconds": 20, # Stabilization phase (Phase 1)
+            "evaluation_seconds": 20, # Evaluation phase (Phase 2)
+            "measurement_interval": 1.0 # Interval (seconds) between high-frequency memory captures
+        }
+        
+        settings = {}
+        if not os.path.exists(settings_path):
+            settings = default_settings
+            with open(settings_path, 'w') as f:
+                json.dump(settings, f, indent=2)
+        else:
+            try:
+                with open(settings_path, 'r') as f:
+                    settings = json.load(f)
+            except:
+                settings = {}
+
+            # Self-updating logic for settings consistency
+            changed = False
+            def deep_merge(target, default):
+                updated = False
+                for key, val in default.items():
+                    if key not in target:
+                        target[key] = val
+                        updated = True
+                    elif isinstance(val, dict) and isinstance(target[key], dict):
+                        if deep_merge(target[key], val):
+                            updated = True
+                return updated
+
+            if deep_merge(settings, default_settings):
+                with open(settings_path, 'w') as f:
+                    json.dump(settings, f, indent=2)
+        
+        return settings
+
     def __init__(self, settings_path='settings.json', state=None):
         """
         Initializes the Chromium measurement pipeline and handles configuration merging.
@@ -27,49 +97,7 @@ class ChromiumPipeline:
                 provided by the Flask app to track real-time pipeline status for the frontend.
         """
         self.state = state
-        
-        # Default settings template. New fields are automatically merged into the user's settings.json.
-        default_settings = {
-            "local_chromium_path": os.path.abspath(os.path.join(os.getcwd(), "../chromium")), # Local path to Chromium 'src'
-            "depot_tools_path": "", # Local path to depot_tools
-            "build_path": "out/Default", # Default build output directory
-            "headless": True, # Run browser without visible UI
-            "use_ssh": False, # Enable remote execution via SSH
-            "debug": True, # Write detailed logs to pipeline_debug.log
-            "refresh_log": True, # Clear log file on startup
-            "ssh_config": {
-                "host": "", # Remote server IP
-                "port": 22, # SSH port
-                "user": "", # SSH username
-                "password": "", # SSH password
-                "chromium_path": "", # Remote Chromium 'src' path
-                "build_path": "out/Default", # Remote build directory
-                "depot_tools_path": "" # Remote depot_tools path
-            },
-            "default_repeats": 5, 
-            "wait_seconds": 20 
-        }
-
-        if not os.path.exists(settings_path):
-            self.settings = default_settings
-            with open(settings_path, 'w') as f:
-                json.dump(self.settings, f, indent=2)
-        else:
-            self.settings = self._load_json(settings_path)
-            # Self-updating logic for settings consistency
-            changed = False
-            for key, val in default_settings.items():
-                if key not in self.settings:
-                    self.settings[key] = val
-                    changed = True
-                elif isinstance(val, dict):
-                    for k, v in val.items():
-                        if k not in self.settings[key]:
-                            self.settings[key][k] = v
-                            changed = True
-            if changed:
-                with open(settings_path, 'w') as f:
-                    json.dump(self.settings, f, indent=2)
+        self.settings = self.load_settings(settings_path)
         
         self.use_ssh = self.settings.get('use_ssh', False)
         self.local_chromium_path = self.settings.get('local_chromium_path', '../chromium')
@@ -157,7 +185,7 @@ class ChromiumPipeline:
         """
         retries = max_retries if max_retries is not None else 5
         conn_timeout = timeout if timeout is not None else 20
-        
+
         for attempt in range(retries):
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -171,7 +199,8 @@ class ChromiumPipeline:
                 )
                 return ssh
             except Exception as e:
-                print(f"SSH Connection attempt {attempt + 1} failed: {e}")
+                ssh.close()
+                print(f"SSH Connection attempt ({attempt + 1}/{retries}) failed: {e}")
                 if attempt < retries - 1: time.sleep(3)
         return None
 
@@ -189,14 +218,14 @@ class ChromiumPipeline:
         """
         ssh = self._get_ssh_client(timeout=timeout, max_retries=max_retries)
         if not ssh: return False, 0
-        
+
         try:
             start_time = time.time()
             remote_path = self.ssh_config.get('chromium_path') or self.local_chromium_path
             remote_depot = self.ssh_config.get('depot_tools_path', '')
             env_setup = f"export PATH=$PATH:{remote_depot} " if remote_depot else ""
             full_cmd = f"cd {remote_path} && {env_setup} && {cmd}"
-            
+
             stdin, stdout, stderr = ssh.exec_command(full_cmd)
             for line in stdout:
                 print(line, end='')
@@ -219,7 +248,7 @@ class ChromiumPipeline:
         """
         self._update_status("Starting Chromium Build...")
         gn_args = ' '.join(build_flags)
-        
+
         if self.use_ssh:
             build_path = self.ssh_config.get('build_path', 'out/Default')
             cwd = self.ssh_config.get('chromium_path')
@@ -230,7 +259,7 @@ class ChromiumPipeline:
         self._update_status(f"Running gn gen for {build_path}...")
         success, _ = self.run_command(f"gn gen {build_path} --args='{gn_args}'", cwd=cwd)
         if not success: return False, 0
-            
+
         self._update_status(f"Running autoninja for {build_path} (chrome + chromedriver)...")
         return self.run_command(f"autoninja -C {build_path} chrome chromedriver", cwd=cwd)
 
@@ -252,22 +281,45 @@ class ChromiumPipeline:
 
     def _measure_memory_local(self, runtime_flags, repeats):
         """
-        Orchestrates Selenium measurements on the local machine with auto-cleanup.
+        Orchestrates high-frequency Selenium measurements locally using polling and CDP.
+        
+        Follows a robust two-phase measurement protocol:
+        1. Phase 1 (Stabilization): Measures for X seconds (default 20s). 
+           Uses a 'skip-behind' strategy: if a measurement (CDP call) takes too long, 
+           it skips the next scheduled points to avoid bursting and reduce CPU load 
+           during heavy page initialization.
+        2. Phase 2 (Evaluation): Measures for Y points (default 20). 
+           Uses a 'catch-up' strategy: ensures exactly Y points are collected even 
+           if some measurements are delayed, providing a consistent dataset for peak analysis.
 
         Args:
-            runtime_flags (list): Chrome command-line arguments.
-            repeats (int): Number of iterations.
+            runtime_flags (list): List of Chrome command-line arguments.
+            repeats (int): Number of measurement iterations per URL.
 
         Returns:
-            list: Collected memory results.
+            list: A list of iteration results, where each contains 'peak' (max RSS of Phase 2),
+                  'samples' (all data points), and phase counts.
         """
         self._update_status(f"Measuring memory locally (Repeats: {repeats})...")
         results = []
         build_path = self.settings.get('build_path', 'out/Default')
         chrome_exe = os.path.join(self.local_chromium_path, build_path, "chrome")
+        stabilization_sec = float(self.settings.get('stabilization_seconds', 20))
+        evaluation_sec = float(self.settings.get('evaluation_seconds', 20))
+        interval = float(self.settings.get('measurement_interval', 1.0))
         
+        # Collect device metadata
+        import platform
+        device_info = {
+            "os": platform.system(),
+            "os_release": platform.release(),
+            "cpu": platform.processor(),
+            "machine": platform.machine(),
+            "python_version": platform.python_version()
+        }
+
         for i in range(repeats):
-            iteration_result = {"iteration": i + 1, "urls": {}}
+            iteration_result = {"iteration": i + 1, "urls": {}, "metadata": device_info}
             options = Options()
             options.binary_location = chrome_exe
             if self.settings.get('headless', True): options.add_argument("--headless=new")
@@ -275,24 +327,121 @@ class ChromiumPipeline:
             
             try:
                 driver = webdriver.Chrome(options=options)
+                # Enable CDP Performance Domain
+                driver.execute_cdp_cmd('Performance.enable', {})
+                
                 for url in self.target_urls:
                     self._update_status(f"Local Measure Iter {i+1}/{repeats}: {url}")
                     driver.get(url)
-                    time.sleep(self.settings.get('wait_seconds', 20))
-                    total_memory = self._get_total_memory(driver.service.process.pid)
-                    if total_memory > 0:
-                        iteration_result["urls"][url] = total_memory / (1024 * 1024)
+                    
+                    all_samples = []
+                    evaluation_rss = []
+                    
+                    start_time = time.time()
+                    
+                    # --- Phase 1: Stabilization (Skip-behind to avoid bursting) ---
+                    current_target = start_time
+                    while time.time() - start_time <= stabilization_sec and current_target - start_time <= stabilization_sec:
+                        wait = current_target - time.time()
+                        
+                        if wait < -interval/2:
+                            # Behind schedule: Adjust target to current time to prevent bursts
+                            current_target = time.time()
+                        elif wait > 0:
+                            time.sleep(wait)
+                        
+                        current_target += interval
+                        actual_elapsed = round(time.time() - start_time, 2)
+                        
+                        # Measure
+                        rss_bytes = self._get_total_memory(driver.service.process.pid)
+                        if rss_bytes > 0:
+                            sample = self._capture_sample(driver, rss_bytes / (1024 * 1024), actual_elapsed)
+                            all_samples.append(sample)
+                    
+                    phase1_final_count = len(all_samples)
+                    
+                    # --- Phase 2: Evaluation (Catch-up to ensure fixed count) ---
+                    phase2_expected = int(evaluation_sec / interval)
+                    # Align Phase 2 timeline strictly with the initial start_time
+                    phase2_base_time = start_time + stabilization_sec
+                    for j in range(phase2_expected):
+                        # Targets: start + stabilization + 1s, 2s, ..., 20s
+                        current_target = phase2_base_time + ((j + 1) * interval)
+                        wait = current_target - time.time()
+                        if wait > 0:
+                            time.sleep(wait)
+                        
+                        actual_elapsed = round(time.time() - start_time, 2)
+                        rss_bytes = self._get_total_memory(driver.service.process.pid)
+                        if rss_bytes > 0:
+                            rss_mb = rss_bytes / (1024 * 1024)
+                            sample = self._capture_sample(driver, rss_mb, actual_elapsed)
+                            all_samples.append(sample)
+                            evaluation_rss.append(rss_mb)
+                    
+                    if all_samples:
+                        peak_rss = max(evaluation_rss) if evaluation_rss else max([s['rss'] for s in all_samples])
+                        iteration_result["urls"][url] = {
+                            "peak": peak_rss,
+                            "samples": all_samples,
+                            "phase1_count": phase1_final_count,
+                            "phase2_count": len(evaluation_rss)
+                        }
                 driver.quit()
             except Exception as e:
                 print(f"Driver Error: {e}")
                 if 'driver' in locals(): driver.quit()
             
-            # Clean up zombie processes
             os.system("pkill -f chrome || true")
-            
+
             if iteration_result["urls"]:
                 results.append(iteration_result)
         return results
+
+    def _capture_sample(self, driver, rss_mb, actual_elapsed):
+        """
+        Captures a comprehensive snapshot of memory and performance metrics via CDP.
+        
+        Executes the 'Performance.getMetrics' command to retrieve internal browser 
+        metrics such as V8 JS Heap usage and execution durations for layout/scripts.
+
+        Args:
+            driver (webdriver.Chrome): The active Selenium driver instance.
+            rss_mb (float): The total system-level RSS memory usage in Megabytes.
+            actual_elapsed (float): The actual time in seconds since the page load started.
+
+        Returns:
+            dict: A sample dictionary containing:
+                - timestamp: Wall-clock time of capture.
+                - elapsed: Actual seconds since the page load began.
+                - rss: System-level memory usage (MB).
+                - js_heap_used: Memory used by the V8 JS engine (MB).
+                - js_heap_total: Total memory allocated for the V8 JS engine (MB).
+                - layout_duration: Cumulative time spent on layout operations (ms).
+                - task_duration: Total time spent executing all tasks (ms).
+                - script_duration: Cumulative time spent executing scripts (ms).
+                - nodes: Number of DOM nodes in the document.
+                - documents: Number of documents in the process tree.
+        """
+        try:
+            cdp_metrics = driver.execute_cdp_cmd('Performance.getMetrics', {})
+            metrics_dict = {m['name']: m['value'] for m in cdp_metrics['metrics']}
+        except:
+            metrics_dict = {}
+
+        return {
+            "timestamp": time.time(),
+            "elapsed": actual_elapsed,
+            "rss": rss_mb,
+            "js_heap_used": metrics_dict.get('JSHeapUsedSize', 0) / (1024 * 1024),
+            "js_heap_total": metrics_dict.get('JSHeapTotalSize', 0) / (1024 * 1024),
+            "layout_duration": metrics_dict.get('LayoutDuration', 0),
+            "task_duration": metrics_dict.get('TaskDuration', 0),
+            "script_duration": metrics_dict.get('ScriptDuration', 0),
+            "nodes": metrics_dict.get('Nodes', 0),
+            "documents": metrics_dict.get('Documents', 0)
+        }
 
     def _get_total_memory(self, pid):
         """
@@ -341,73 +490,25 @@ class ChromiumPipeline:
         
         # Dependency installation with robust pathing
         self._update_status(f"Checking remote dependencies...")
-        dep_install_cmd = (
-            "python3 -m ensurepip --user || true; "
-            "python3 -m pip install --upgrade pip --user || true; "
-            "python3 -m pip install selenium psutil --user"
-        )
-        stdin, stdout, stderr = ssh.exec_command(dep_install_cmd)
-        stdout.channel.recv_exit_status()
-
-        remote_script_content = textwrap.dedent(f"""
-            import json, time, psutil, os, sys
-            
-            try:
-                from selenium import webdriver
-                from selenium.webdriver.chrome.options import Options
-                from selenium.webdriver.chrome.service import Service
-            except ImportError as e:
-                print(f"---ERROR---: Required Python module missing: {{e}}. Please run 'pip install selenium psutil' on the remote server.")
-                sys.exit(1)
-
-            def get_mem(pid):
-                try:
-                    p = psutil.Process(pid)
-                    m = p.memory_info().rss
-                    for c in p.children(recursive=True): m += c.memory_info().rss
-                    return m / (1024 * 1024)
-                except: return 0
-
-            def cleanup():
-                os.system("pkill -f chrome || true")
-                os.system("pkill -f chromedriver || true")
-
-            target_urls = {json.dumps(self.target_urls)}
-            runtime_flags = {json.dumps(runtime_flags)}
-            repeats = {repeats}
-            wait_sec = {self.settings.get('wait_seconds', 20)}
-            
-            results = []
-            for i in range(repeats):
-                iter_res = {{"iteration": i + 1, "urls": {{}}}}
-                opts = Options()
-                opts.binary_location = "{chrome_exe}"
-                opts.add_argument("--headless=new")
-                opts.add_argument("--no-sandbox") 
-                opts.add_argument("--disable-dev-shm-usage")
-                for f in runtime_flags: opts.add_argument(f)
-                
-                try:
-                    svc = Service(executable_path="{chromedriver_exe}")
-                    driver = webdriver.Chrome(service=svc, options=opts)
-                    for url in target_urls:
-                        driver.get(url)
-                        time.sleep(wait_sec)
-                        mem = get_mem(driver.service.process.pid)
-                        if mem > 0: iter_res["urls"][url] = mem
-                    driver.quit()
-                except Exception as e:
-                    print(f"Iteration {{i+1}} error: {{e}}", file=sys.stderr)
-                
-                cleanup()
-                if iter_res["urls"]: results.append(iter_res)
-            
-            print("---RESULT_START---")
-            print(json.dumps(results))
-            print("---RESULT_END---")
-        """)
+        dep_install_cmd = "python3 -m pip install selenium psutil --user"
+        ssh.exec_command(dep_install_cmd)
 
         try:
+            with open('remote_agent.py', 'r') as f:
+                remote_script_content = f.read()
+            replacements = {
+                "{{TARGET_URLS}}": json.dumps(self.target_urls),
+                "{{RUNTIME_FLAGS}}": json.dumps(runtime_flags),
+                "{{REPEATS}}": str(repeats),
+                "{{STABILIZATION_SEC}}": str(self.settings.get('stabilization_seconds', 20)),
+                "{{EVALUATION_SEC}}": str(self.settings.get('evaluation_seconds', 20)),
+                "{{INTERVAL}}": str(self.settings.get('measurement_interval', 1.0)),
+                "{{CHROME_EXE}}": chrome_exe,
+                "{{CHROMEDRIVER_EXE}}": chromedriver_exe
+            }
+            for placeholder, value in replacements.items():
+                remote_script_content = remote_script_content.replace(placeholder, value)
+            
             sftp = ssh.open_sftp()
             remote_agent_path = os.path.join(remote_path, "remote_agent.py")
             with sftp.file(remote_agent_path, 'w') as f:
@@ -415,18 +516,36 @@ class ChromiumPipeline:
             sftp.close()
 
             self._update_status(f"Executing remote measurement agent...")
-            cmd = f"python3 {remote_agent_path}"
+            cmd = f"python3 {remote_agent_path} 2>&1"
             stdin, stdout, stderr = ssh.exec_command(f"cd {remote_path} && {cmd}")
-            output = stdout.read().decode()
             
+            output = ""
+            is_collecting_result = False
+            for line in stdout:
+                if "---RESULT_START---" in line:
+                    is_collecting_result = True
+                    print("[Remote] Results data block started...")
+                    continue
+                if "---RESULT_END---" in line:
+                    is_collecting_result = False
+                    print(f"[Remote] Results data block ended (Total: {len(output)} bytes)")
+                    continue
+                
+                if is_collecting_result:
+                    output += line
+                else:
+                    # Print regular logs but skip the huge JSON block
+                    print(f"[Remote] {line}", end='')
+                    if "Iteration" in line or "Visiting" in line:
+                        self._update_status(line.strip())
+
             # Final cleanup
             self._update_status(f"Cleaning up remote agent script...")
             ssh.exec_command(f"rm {remote_agent_path}")
             ssh.close()
 
-            if "---RESULT_START---" in output:
-                json_str = output.split("---RESULT_START---")[1].split("---RESULT_END---")[0].strip()
-                return json.loads(json_str)
+            if output.strip():
+                return json.loads(output.strip())
             return []
         except Exception as e:
             print(f"Remote measurement failed: {e}")
@@ -444,7 +563,7 @@ class ChromiumPipeline:
         """
         if not self.use_ssh and not os.path.exists(self.local_chromium_path):
             raise FileNotFoundError(f"Chromium path not found: {self.local_chromium_path}")
-
+        
         self._update_status(f"Task {feature['id']}: Starting Build")
         build_success, build_time = self.build_chromium(feature.get('build_flags', []))
         if not build_success: 
@@ -454,7 +573,7 @@ class ChromiumPipeline:
         repeats = self.settings.get('default_repeats', 5)
         self._update_status(f"Task {feature['id']}: Starting Measurement")
         memory_results = self.measure_memory(feature.get('runtime_flags', []), repeats=repeats)
-        
+
         if not memory_results:
             self._update_status(f"Task {feature['id']}: Measurement failed. Not saving.")
             return None

@@ -3,7 +3,7 @@ import os
 import signal
 import psutil
 import json
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request, render_template
 from pipeline import ChromiumPipeline
 
 app = Flask(__name__)
@@ -81,20 +81,123 @@ def kill_child_processes(parent_pid, sig=signal.SIGKILL):
 @app.route('/')
 def index():
     """
-    Serves the main dashboard HTML page.
-
+    Serves the main dashboard page.
+    
     Returns:
-        Response: The static index.html file.
+        str: Rendered dashboard.html template.
     """
-    return send_from_directory('static', 'index.html')
+    return render_template('dashboard.html')
+
+@app.route('/settings')
+def settings_page():
+    """
+    Serves the project settings page.
+    
+    Returns:
+        str: Rendered settings.html template.
+    """
+    return render_template('settings.html')
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    """
+    API endpoint to fetch the current configuration from settings.json.
+    If settings.json doesn't exist, it returns default settings.
+    This also ensures missing fields are merged from defaults.
+    
+    Returns:
+        Response: JSON object containing all settings.
+    """
+    settings = ChromiumPipeline.load_settings()
+    return jsonify(settings)
+
+@app.route('/api/settings', methods=['POST'])
+def save_settings():
+    """
+    API endpoint to update settings.json with new values.
+    It merges new values into existing ones to preserve fields like 'debug'.
+    
+    Returns:
+        Response: JSON status (success/error).
+    """
+    new_settings = request.json
+    settings_path = 'settings.json'
+    
+    try:
+        # Load existing settings if they exist
+        existing_settings = {}
+        if os.path.exists(settings_path):
+            with open(settings_path, 'r') as f:
+                try:
+                    existing_settings = json.load(f)
+                except:
+                    pass
+        
+        # Helper to recursively update dictionary
+        def deep_update(d, u):
+            for k, v in u.items():
+                if isinstance(v, dict) and k in d and isinstance(d[k], dict):
+                    deep_update(d[k], v)
+                else:
+                    d[k] = v
+            return d
+
+        # Merge new settings into existing ones
+        updated_settings = deep_update(existing_settings, new_settings)
+
+        with open(settings_path, 'w') as f:
+            json.dump(updated_settings, f, indent=2)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/browse', methods=['GET'])
+def browse_path():
+    """
+    API endpoint to explore the filesystem for path selection.
+    Used by the frontend file browser modal.
+    
+    Args (Query params):
+        path (str): The directory to list. Defaults to current working directory.
+        
+    Returns:
+        Response: JSON containing current_path and list of subdirectories.
+    """
+    current_path = request.args.get('path', os.getcwd())
+    if not os.path.isabs(current_path):
+        current_path = os.path.abspath(current_path)
+
+    try:
+        if not os.path.exists(current_path):
+             current_path = os.getcwd()
+
+        items = []
+        parent = os.path.dirname(current_path)
+        if parent != current_path:
+            items.append({"name": "..", "path": parent, "is_dir": True})
+
+        for item in sorted(os.listdir(current_path)):
+            full_path = os.path.join(current_path, item)
+            try:
+                if os.path.isdir(full_path):
+                    items.append({
+                        "name": item,
+                        "path": full_path,
+                        "is_dir": True
+                    })
+            except (PermissionError, OSError):
+                continue
+        return jsonify({"current_path": current_path, "items": items})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 403
 
 @app.route('/api/start', methods=['POST'])
 def start_pipeline():
     """
-    API endpoint to trigger the measurement process in the background.
-
+    API endpoint to trigger the measurement pipeline in a background process.
+    
     Returns:
-        tuple: (JSON response, int status_code)
+        Response: JSON status (started/already running).
     """
     if app.shared_state["is_running"]:
         return jsonify({"status": "already running"}), 400
@@ -111,9 +214,9 @@ def stop_pipeline():
     """
     API endpoint to force-stop any running builds or measurements.
     Instantly updates UI state and then performs cleanup.
-
+    
     Returns:
-        tuple: (JSON response, int status_code)
+        Response: JSON status (force stopped).
     """
     # 1. Kill the local management process immediately
     if app.pipeline_process and app.pipeline_process.is_alive():
@@ -123,7 +226,7 @@ def stop_pipeline():
         app.pipeline_process.join(timeout=1)
         if app.pipeline_process.is_alive():
             os.kill(app.pipeline_process.pid, signal.SIGKILL)
-            
+
     # 2. IMMEDIATELY update shared state so UI reflects 'Idle' without waiting for SSH
     app.shared_state["is_running"] = False
     app.shared_state["current_task"] = None
@@ -139,12 +242,12 @@ def stop_pipeline():
             cleanup_cmd = "pkill -f chrome || true; pkill -f chromedriver || true"
             if remote_path:
                 cleanup_cmd += f"; rm {os.path.join(remote_path, 'remote_agent.py')} || true"
-            
+
             # Use short timeout and 1 retry
             pipeline.run_command(cleanup_cmd, timeout=5, max_retries=1)
     except Exception as e:
         print(f"Remote cleanup skipped: {e}")
-
+    
     app.shared_state["detailed_status"] = "Idle"
     return jsonify({"status": "force stopped"})
 
@@ -152,9 +255,9 @@ def stop_pipeline():
 def get_status():
     """
     API endpoint to fetch the current live status for the dashboard UI.
-
+    
     Returns:
-        tuple: (JSON response containing running state and current task, int status_code)
+        Response: JSON containing is_running, current_task, and detailed_status.
     """
     return jsonify({
         "is_running": app.shared_state["is_running"],
@@ -166,9 +269,9 @@ def get_status():
 def get_results():
     """
     API endpoint to fetch all historical measurement results from test_results.json.
-
+    
     Returns:
-        tuple: (JSON list of results, int status_code)
+        Response: JSON list of all recorded results.
     """
     if os.path.exists('test_results.json'):
         with open('test_results.json', 'r') as f:
