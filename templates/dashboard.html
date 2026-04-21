@@ -13,6 +13,32 @@
     <div class="controls-row">
         <button id="startBtn" class="btn btn-primary">Start Measurement</button>
         <button id="stopBtn" class="btn btn-danger" disabled>Stop Measurement</button>
+
+        <div class="vitals-container">
+            <div class="vitals-summary">
+                <span class="vitals-indicator" id="vitalsIndicator"></span>
+                <span>Server</span>
+            </div>
+            
+            <div class="vitals-detail">
+                <div class="vital-item">
+                    <span>CPU</span>
+                    <span id="vitalCpu">--%</span>
+                </div>
+                <div class="vital-item">
+                    <span>RAM</span>
+                    <span id="vitalRam">--%</span>
+                </div>
+                <div class="vital-item">
+                    <span>Disk</span>
+                    <span id="vitalDisk">--GB</span>
+                </div>
+                <div class="vital-item">
+                    <span>Uptime</span>
+                    <span id="vitalUptime">--:--</span>
+                </div>
+            </div>
+        </div>
     </div>
     <div id="status" class="status-indicator">Status: Idle</div>
 </div>

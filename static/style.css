@@ -9,6 +9,10 @@
     --text-color: #333;
     --sidebar-width: 240px;
     --sidebar-collapsed-width: 70px;
+    /* Vitals Status Colors*/
+    --vital-good: #2ecc71;
+    --vital-warning: #f39c12;
+    --vital-danger: #e74c3c;
 }
 
 body {
@@ -311,3 +315,72 @@ th, td {
 .file-list li:hover { background-color: #f9f9f9; }
 .current-path { background: #eee; padding: 10px; border-radius: 4px; font-family: monospace; margin-bottom: 15px; }
 .close-modal { font-size: 28px; cursor: pointer; }
+
+
+
+/* --- Vitals Widget Styles --- */
+.vitals-container {
+    margin-left: auto; /* 버튼들 오른쪽에 딱 붙도록 밀어냄 */
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.vitals-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-color);
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+/* 상태를 나타내는 작은 동그라미 */
+.vitals-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: var(--vital-good); /* 기본값 */
+    transition: background-color 0.3s ease;
+}
+
+/* 펼쳐졌을 때의 상세 정보창 (초기엔 숨김) */
+.vitals-detail {
+    position: absolute;
+    top: 110%; /* Summary 바로 아래에 위치 */
+    right: 0;
+    width: 200px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    
+    /* 스르륵 펼쳐지는 마법 (있어빌리티) */
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    z-index: 100;
+}
+
+/* 컨테이너에 마우스를 올리면 Detail 창 표시 */
+.vitals-container:hover .vitals-detail {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.vital-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+}
+.vital-item:last-child { margin-bottom: 0; }
+.vital-item span:first-child { color: #7f8c8d; }
+.vital-item span:last-child { font-weight: bold; }
