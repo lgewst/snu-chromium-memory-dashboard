@@ -212,9 +212,9 @@ document.addEventListener('DOMContentLoaded', () => {
     updateStatus();
     fetchResults();
 
-    // ==========================================
+    // ================================================================================================
     // --- Vitals Widget Logic ---
-    // ==========================================
+    // ================================================================================================
     const vitalsSummary = document.getElementById('vitalsSummary');
     const vitalsIndicator = document.getElementById('vitalsIndicator');
     const vitalCpu = document.getElementById('vitalCpu');
@@ -224,6 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const vitalsContainer = document.querySelector('.vitals-container');
 
     let isVitalsExpanded = false;
+    let isServerMode = false;
 
     // 1. 위젯 요약창 클릭 시 Toggle 동작
     if (vitalsSummary && vitalsContainer) {
@@ -234,7 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 2. 위젯 바깥 화면을 클릭하면 디테일 창이 닫히도록 처리 (UX 향상)
+    // 2. 위젯 바깥 화면을 클릭하면 디테일 창이 닫히도록 처리
     document.addEventListener('click', (event) => {
         if (vitalsContainer && vitalsContainer.classList.contains('expanded')) {
             // 클릭한 곳이 위젯 내부가 아니라면
@@ -246,24 +247,34 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     /**
-     * 임시(Mock) 데이터를 생성하여 반환합니다. (백엔드 연동 전)
+     * Mocking
      */
-    const fetchMockVitals = async () => {
+    const fetchLocalMockVitals = async () => {
         return new Promise(resolve => {
             setTimeout(() => {
                 resolve({
-                    cpu_percent: Math.floor(Math.random() * 100),
-                    ram_percent: Math.floor(Math.random() * 100),
-                    disk_free_gb: Math.floor(Math.random() * 400) + 10, // 10GB ~ 410GB
-                    uptime: `${Math.floor(Math.random() * 100)}h ${Math.floor(Math.random() * 60).toString().padStart(2, '0')}m`
+                    cpu_percent: Math.floor(Math.random() * 40) + 10, // 10~50%
+                    ram_percent: Math.floor(Math.random() * 30) + 40, // 40~70%
+                    disk_free_gb: Math.floor(Math.random() * 50) + 20, // 20~70GB
+                    uptime: `${Math.floor(Math.random() * 12)}h ${Math.floor(Math.random() * 60).toString().padStart(2, '0')}m`
+                });
+            }, 100); 
+        });
+    };
+    const fetchServerMockVitals = async () => {
+        return new Promise(resolve => {
+            setTimeout(() => {
+                resolve({
+                    cpu_percent: Math.floor(Math.random() * 30) + 60, // 60~90% (바쁜 서버)
+                    ram_percent: Math.floor(Math.random() * 20) + 70, // 70~90%
+                    disk_free_gb: Math.floor(Math.random() * 500) + 100, // 100~600GB
+                    uptime: `${Math.floor(Math.random() * 50) + 30} days` // 서버다운 긴 업타임
                 });
             }, 100); 
         });
     };
 
-    /**
-     * 수치에 따라 UI 텍스트와 색상을 업데이트합니다.
-     */
+
     const updateVitalsUI = (data) => {
         if (!vitalsIndicator) return;
 
@@ -285,18 +296,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const pollVitals = async () => {
         try {
-            const data = await fetchMockVitals();
+            const data = isServerMode ? await fetchServerMockVitals() : await fetchLocalMockVitals();
             updateVitalsUI(data);
         } catch (error) {
             console.error("Vitals Error:", error);
             if (vitalsIndicator) vitalsIndicator.style.backgroundColor = '#95a5a6';
         } finally {
-            const nextPollInterval = isVitalsExpanded ? 3000 : 10000;
+            const nextPollInterval = isVitalsExpanded ? 3000 : 9000;
             setTimeout(pollVitals, nextPollInterval);
         }
     };
 
+    const syncVitalsLabel = async () => {
+        const vitalsLabel = document.getElementById('vitalsLabel');
+        if (!vitalsLabel) return;
+
+        try {
+            const response = await fetch('/api/settings');
+            const settings = await response.json();
+
+            isServerMode = !!settings.use_ssh;
+            
+            if (settings.use_ssh) {
+                vitalsLabel.innerText = 'Server';
+            } else {
+                vitalsLabel.innerText = 'Local';
+            }
+        } catch (error) {
+            console.error("Failed to sync settings for vitals label:", error);
+            // 에러 시 기본값
+            // @@@@@@ TODO @@@@@@@@@@@@@@@
+            vitalsLabel.innerText = 'Local(ssh error)';
+            isServerMode = false;
+        }
+    };
+
+    syncVitalsLabel().then(() => {
     if (vitalsContainer) {
         pollVitals();
     }
+});
+    // ================================================================================================
+    // --- end Vitals Widget Logic ---
+    // ================================================================================================
 });
