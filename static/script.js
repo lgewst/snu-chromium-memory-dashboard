@@ -207,4 +207,84 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial load
     updateStatus();
     fetchResults();
+
+    // Initial load
+    updateStatus();
+    fetchResults();
+
+    // ==========================================
+    // --- Vitals Widget Logic ---
+    // ==========================================
+    const vitalsIndicator = document.getElementById('vitalsIndicator');
+    const vitalCpu = document.getElementById('vitalCpu');
+    const vitalRam = document.getElementById('vitalRam');
+    const vitalDisk = document.getElementById('vitalDisk');
+    const vitalUptime = document.getElementById('vitalUptime');
+    const vitalsContainer = document.querySelector('.vitals-container');
+
+    // 위젯을 펼쳤는지 여부 상태 관리
+    let isVitalsExpanded = false;
+
+    if (vitalsContainer) {
+        vitalsContainer.addEventListener('mouseenter', () => isVitalsExpanded = true);
+        vitalsContainer.addEventListener('mouseleave', () => isVitalsExpanded = false);
+    }
+
+    /**
+     * 임시(Mock) 데이터를 생성하여 반환합니다. (백엔드 연동 전)
+     */
+    const fetchMockVitals = async () => {
+        return new Promise(resolve => {
+            setTimeout(() => {
+                resolve({
+                    cpu_percent: Math.floor(Math.random() * 100),
+                    ram_percent: Math.floor(Math.random() * 100),
+                    disk_free_gb: Math.floor(Math.random() * 400) + 10, // 10GB ~ 410GB
+                    uptime: `${Math.floor(Math.random() * 100)}h ${Math.floor(Math.random() * 60).toString().padStart(2, '0')}m`
+                });
+            }, 100); 
+        });
+    };
+
+    /**
+     * 수치에 따라 UI 텍스트와 색상을 업데이트합니다.
+     */
+    const updateVitalsUI = (data) => {
+        if (!vitalsIndicator) return;
+
+        vitalCpu.innerText = `${data.cpu_percent}%`;
+        vitalRam.innerText = `${data.ram_percent}%`;
+        vitalDisk.innerText = `${data.disk_free_gb}GB`;
+        vitalUptime.innerText = data.uptime;
+
+        let statusColor = 'var(--vital-good)'; 
+        let isDanger = data.cpu_percent >= 90 || data.ram_percent >= 90 || data.disk_free_gb < 20;
+        let isWarning = data.cpu_percent >= 70 || data.ram_percent >= 70 || data.disk_free_gb < 50;
+
+        if (isDanger) statusColor = 'var(--vital-danger)';
+        else if (isWarning) statusColor = 'var(--vital-warning)';
+
+        vitalsIndicator.style.backgroundColor = statusColor;
+    };
+
+    /**
+     * 스마트 폴링 로직 (펼쳤을 땐 3초, 접었을 땐 15초 주기)
+     */
+    const pollVitals = async () => {
+        try {
+            const data = await fetchMockVitals();
+            updateVitalsUI(data);
+        } catch (error) {
+            console.error("Vitals Error:", error);
+            if (vitalsIndicator) vitalsIndicator.style.backgroundColor = '#95a5a6';
+        } finally {
+            const nextPollInterval = isVitalsExpanded ? 3000 : 15000;
+            setTimeout(pollVitals, nextPollInterval);
+        }
+    };
+
+    // Vitals 폴링 시작!
+    if (vitalsContainer) {
+        pollVitals();
+    }
 });
