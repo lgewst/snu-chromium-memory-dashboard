@@ -215,6 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ==========================================
     // --- Vitals Widget Logic ---
     // ==========================================
+    const vitalsSummary = document.getElementById('vitalsSummary');
     const vitalsIndicator = document.getElementById('vitalsIndicator');
     const vitalCpu = document.getElementById('vitalCpu');
     const vitalRam = document.getElementById('vitalRam');
@@ -222,13 +223,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const vitalUptime = document.getElementById('vitalUptime');
     const vitalsContainer = document.querySelector('.vitals-container');
 
-    // 위젯을 펼쳤는지 여부 상태 관리
     let isVitalsExpanded = false;
 
-    if (vitalsContainer) {
-        vitalsContainer.addEventListener('mouseenter', () => isVitalsExpanded = true);
-        vitalsContainer.addEventListener('mouseleave', () => isVitalsExpanded = false);
+    // 1. 위젯 요약창 클릭 시 Toggle 동작
+    if (vitalsSummary && vitalsContainer) {
+        vitalsSummary.addEventListener('click', (event) => {
+            event.stopPropagation(); 
+            vitalsContainer.classList.toggle('expanded');
+            isVitalsExpanded = vitalsContainer.classList.contains('expanded');
+        });
     }
+
+    // 2. 위젯 바깥 화면을 클릭하면 디테일 창이 닫히도록 처리 (UX 향상)
+    document.addEventListener('click', (event) => {
+        if (vitalsContainer && vitalsContainer.classList.contains('expanded')) {
+            // 클릭한 곳이 위젯 내부가 아니라면
+            if (!vitalsContainer.contains(event.target)) {
+                vitalsContainer.classList.remove('expanded');
+                isVitalsExpanded = false;
+            }
+        }
+    });
 
     /**
      * 임시(Mock) 데이터를 생성하여 반환합니다. (백엔드 연동 전)
@@ -267,9 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
         vitalsIndicator.style.backgroundColor = statusColor;
     };
 
-    /**
-     * 스마트 폴링 로직 (펼쳤을 땐 3초, 접었을 땐 15초 주기)
-     */
+
     const pollVitals = async () => {
         try {
             const data = await fetchMockVitals();
@@ -278,12 +291,11 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Vitals Error:", error);
             if (vitalsIndicator) vitalsIndicator.style.backgroundColor = '#95a5a6';
         } finally {
-            const nextPollInterval = isVitalsExpanded ? 3000 : 15000;
+            const nextPollInterval = isVitalsExpanded ? 3000 : 10000;
             setTimeout(pollVitals, nextPollInterval);
         }
     };
 
-    // Vitals 폴링 시작!
     if (vitalsContainer) {
         pollVitals();
     }
