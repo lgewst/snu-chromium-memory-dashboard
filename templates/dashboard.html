@@ -2,6 +2,7 @@
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 {% endblock %}
 
 {% block content %}
@@ -12,15 +13,17 @@
 <div class="controls-card">
     <div class="vitals-row">
         <div class="vitals-container" id="vitalsContainer">
-            <div class="vitals-summary" id="vitalsSummary">
+            <div class="vitals-base" id="vitalsSummary">
+                <span id="vitalsLabel">Local</span>
                 <span class="vitals-indicator" id="vitalsIndicator"></span>
-                <span id="vitalsLabel">Server</span> </div>
+            </div>
             
-            <div class="vitals-detail">
-                <div class="vital-item"><span>CPU</span><span id="vitalCpu">--%</span></div>
-                <div class="vital-item"><span>RAM</span><span id="vitalRam">--%</span></div>
-                <div class="vital-item"><span>Disk</span><span id="vitalDisk">--GB</span></div>
-                <div class="vital-item"><span>Uptime</span><span id="vitalUptime">--:--</span></div>
+            <div class="vitals-expanded-content" id="vitalsExpandedContent">
+                <span class="vitals-divider">|</span>
+                <span id="vitalDetailsText">Loading...</span>
+                <span class="vitals-divider">|</span>
+                <button class="vitals-refresh-btn" id="vitalsRefreshBtn" title="Force Refresh">🔄</button>
+                <span class="vitals-timer" id="vitalsTimerText"></span>
             </div>
         </div>
     </div>
