@@ -10,36 +10,26 @@
 </div>
 
 <div class="controls-card">
-    <div class="controls-row">
-        <button id="startBtn" class="btn btn-primary">Start Measurement</button>
-        <button id="stopBtn" class="btn btn-danger" disabled>Stop Measurement</button>
-
-        <div class="vitals-container">
-            <div class="vitals-summary">
+    <div class="vitals-row">
+        <div class="vitals-container" id="vitalsContainer">
+            <div class="vitals-summary" id="vitalsSummary">
                 <span class="vitals-indicator" id="vitalsIndicator"></span>
-                <span>Server</span>
-            </div>
+                <span id="vitalsLabel">Server</span> </div>
             
             <div class="vitals-detail">
-                <div class="vital-item">
-                    <span>CPU</span>
-                    <span id="vitalCpu">--%</span>
-                </div>
-                <div class="vital-item">
-                    <span>RAM</span>
-                    <span id="vitalRam">--%</span>
-                </div>
-                <div class="vital-item">
-                    <span>Disk</span>
-                    <span id="vitalDisk">--GB</span>
-                </div>
-                <div class="vital-item">
-                    <span>Uptime</span>
-                    <span id="vitalUptime">--:--</span>
-                </div>
+                <div class="vital-item"><span>CPU</span><span id="vitalCpu">--%</span></div>
+                <div class="vital-item"><span>RAM</span><span id="vitalRam">--%</span></div>
+                <div class="vital-item"><span>Disk</span><span id="vitalDisk">--GB</span></div>
+                <div class="vital-item"><span>Uptime</span><span id="vitalUptime">--:--</span></div>
             </div>
         </div>
     </div>
+
+    <div class="controls-row">
+        <button id="startBtn" class="btn btn-primary">Start Measurement</button>
+        <button id="stopBtn" class="btn btn-danger" disabled>Stop Measurement</button>
+    </div>
+
     <div id="status" class="status-indicator">Status: Idle</div>
 </div>
 
