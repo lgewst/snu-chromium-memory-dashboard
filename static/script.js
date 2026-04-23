@@ -341,13 +341,14 @@ document.addEventListener('DOMContentLoaded', () => {
         isFetching = true;
 
         try {
-            // [나중 연동 시] const response = await fetch('/api/vitals'); const data = await response.json();
-            const data = isServerMode ? await fetchServerMockVitals() : await fetchLocalMockVitals();
+            const response = await fetch('/api/vitals'); 
+            const data = await response.json();
+            // const data = isServerMode ? await fetchServerMockVitals() : await fetchLocalMockVitals();
             updateVitalsUI(data);
         } catch (error) {
             console.error("Vitals Error:", error);
             if (vitalsIndicator) vitalsIndicator.style.backgroundColor = '#95a5a6';
-            vitalDetailsText.innerHTML = "Error fetching data.";
+            if (vitalDetailsText) vitalDetailsText.innerHTML = "Error fetching data.";
         } finally {
             isFetching = false;
         }
@@ -366,7 +367,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * 즉시 갱신 및 카운트다운 초기화
      */
     const forceRefreshVitals = () => {
-        countdown = isVitalsExpanded ? 3 : 15;
+        countdown = isVitalsExpanded ? 5 : 15;
         if (isVitalsExpanded) {
             vitalsTimerText.innerText = "Refreshing...";
         }
@@ -380,6 +381,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (timerInterval) clearInterval(timerInterval);
 
         timerInterval = setInterval(() => {
+            // [DEEP DIVE] 브라우저 탭이 숨겨져 있으면(다른 탭을 보고 있으면) 카운트다운을 멈춥니다.
+            if (document.hidden) return; 
+
             countdown--;
 
             if (countdown <= 0) {
@@ -389,6 +393,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, 1000);
     };
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            // 유저가 이 탭으로 다시 돌아왔을 때!
+            console.log("Welcome back! Refreshing vitals...");
+            forceRefreshVitals();
+        }
+    });
 
     /**
      * 초기화 (설정값 동기화 후 타이머 시작)
