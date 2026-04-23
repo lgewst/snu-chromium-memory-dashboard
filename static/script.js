@@ -209,7 +209,13 @@ document.addEventListener('DOMContentLoaded', () => {
      * Start Pipeline execution.
      */
     startBtn.addEventListener('click', async () => {
-        await fetch('/api/start', { method: 'POST' });
+        const response = await fetch('/api/start', { method: 'POST' });
+        if (!response.ok) {
+            const data = await response.json();
+            if (data.status === 'error') {
+                alert(data.message || 'Failed to start pipeline');
+            }
+        }
         updateStatus();
     });
 

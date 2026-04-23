@@ -1,6 +1,7 @@
 # .gitignore
 settings.json
 test_results.json
+memory_features.json
 __pycache__/
 *.pyc
 venv/

@@ -346,14 +346,27 @@ def browse_path():
 @app.route('/api/start', methods=['POST'])
 def start_pipeline():
     """
-    API endpoint to trigger the measurement pipeline in a background process.
-    
+    API endpoint to initiate the background measurement process.
+    Validates if memory_features.json exists and contains tasks.
+
     Returns:
-        Response: JSON status (started/already running).
+        Response: JSON status (started/error/already running).
     """
     if app.shared_state["is_running"]:
         return jsonify({"status": "already running"}), 400
-    
+
+    # Validate tasks before starting
+    if not os.path.exists('memory_features.json'):
+        return jsonify({"status": "error", "message": "No tasks defined (memory_features.json missing)"}), 400
+
+    try:
+        with open('memory_features.json', 'r') as f:
+            tasks = json.load(f)
+            if not tasks or len(tasks) == 0:
+                return jsonify({"status": "error", "message": "No tasks to do"}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to read tasks: {str(e)}"}), 400
+
     app.pipeline_process = multiprocessing.Process(
         target=run_pipeline_task, 
         args=(app.shared_state,)

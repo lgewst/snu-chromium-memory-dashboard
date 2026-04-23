@@ -341,7 +341,7 @@ function generateCombinations(fBT, fRT) {
     const pOpts = bulkPatches.length > 0 ? bulkPatches : [null];
 
     const tasks = [];
-    let nextId = parseInt(getNextId());
+    let nextIdVal = parseInt(getNextId());
 
     for (const patch of pOpts) {
         const p = patch || null;
@@ -350,7 +350,14 @@ function generateCombinations(fBT, fRT) {
             for (const rt of rtSets) {
                 const finalRT = [...fRT, ...rt];
                 if (fBT.length === 0 && fRT.length === 0 && bt.length === 0 && rt.length === 0 && !p) continue;
-                tasks.push({ id: (nextId++).toString(), build_flags: finalBT, runtime_flags: finalRT, patch: p });
+                
+                // Ensure the ID is not in completedIds (redundant because getNextId already checks, 
+                // but needed for subsequent IDs in the loop)
+                while (completedIds.has(nextIdVal.toString())) {
+                    nextIdVal++;
+                }
+                
+                tasks.push({ id: (nextIdVal++).toString(), build_flags: finalBT, runtime_flags: finalRT, patch: p });
             }
         }
     }
@@ -395,11 +402,16 @@ async function saveAllFeatures() {
 }
 
 /**
- * Determines the next available numeric ID by finding the maximum existing ID and incrementing.
+ * Determines the next available numeric ID by finding the maximum existing ID 
+ * in both defined tasks and completed results, then incrementing.
  * @returns {string} The next unique ID.
  */
 function getNextId() {
-    return (allFeatures.length > 0) ? (Math.max(...allFeatures.map(f => parseInt(f.id) || 0)) + 1).toString() : "1";
+    const existingIds = [
+        ...allFeatures.map(f => parseInt(f.id) || 0),
+        ...Array.from(completedIds).map(id => parseInt(id) || 0)
+    ];
+    return (existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1).toString();
 }
 
 /**
