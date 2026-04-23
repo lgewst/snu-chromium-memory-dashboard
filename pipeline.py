@@ -104,6 +104,8 @@ class ChromiumPipeline:
         self.local_depot_tools = self.settings.get('depot_tools_path', '')
         self.ssh_config = self.settings.get('ssh_config', {})
         self.target_urls = self._load_json('target_urls.json')
+
+        self._persistent_ssh = None
         
         if self.settings.get('debug', True):
             log_mode = 'w' if self.settings.get('refresh_log', True) else 'a'
@@ -605,3 +607,98 @@ class ChromiumPipeline:
         history.append(result)
         with open('test_results.json', 'w') as f:
             json.dump(history, f, indent=2)
+
+    def _get_persistent_ssh(self):
+        """
+        [NEW] 기존에 연결된 SSH 세션이 살아있다면 재사용하고, 죽었으면 새로 연결합니다.
+        매번 발생하는 수백 ms 단위의 SSH Handshake 오버헤드를 완벽히 제거합니다.
+        """
+        if self._persistent_ssh:
+            transport = self._persistent_ssh.get_transport()
+            if transport and transport.is_active():
+                return self._persistent_ssh
+                
+        # 세션이 없거나 끊어졌다면 새로 연결
+        self._persistent_ssh = self._get_ssh_client(timeout=3, max_retries=1)
+        return self._persistent_ssh
+
+    def get_remote_vitals(self):
+        """
+        원격 서버의 시스템 상태를 수집합니다. (지속형 SSH 세션 적용)
+        """
+        if not self.use_ssh or not self.ssh_config:
+            return None
+
+        cmd = "cat /proc/loadavg; echo '---'; free -m; echo '---'; df -BG /; echo '---'; top -bn1 | grep 'Cpu(s)'"
+        
+        try:
+            # 1. 매번 새로 연결하지 않고, 열려있는 세션을 가져옵니다.
+            ssh = self._get_persistent_ssh()
+            if not ssh:
+                return {"status": "disconnected"}
+
+            # 2. 명령어 실행 (이미 뚫려있는 파이프를 통해 텍스트만 쏜살같이 오갑니다)
+            stdin, stdout, stderr = ssh.exec_command(cmd)
+            output = stdout.read().decode('utf-8').strip()
+            
+            # [CRITICAL] 여기서 ssh.close()를 절대 하지 않습니다! 다음 3초 뒤에 또 써야 하니까요.
+
+            if not output:
+                return {"status": "disconnected"}
+
+            parts = output.split('---')
+            if len(parts) < 4: return {"status": "disconnected"}
+
+            # ... (이하 기존 파싱 로직과 동일) ...
+            load_avg = " ".join(parts[0].strip().split()[:3]).replace(" ", ", ")
+            
+            # Memory parsing
+            mem_lines = parts[1].strip().split('\n')
+            ram_tot = ram_curr = swap_tot = swap_curr = 0
+            for line in mem_lines:
+                if line.startswith('Mem:'):
+                    cols = line.split()
+                    ram_tot = round(int(cols[1]) / 1024, 1)
+                    ram_curr = round(int(cols[2]) / 1024, 1)
+                elif line.startswith('Swap:'):
+                    cols = line.split()
+                    swap_tot = round(int(cols[1]) / 1024, 1)
+                    swap_curr = round(int(cols[2]) / 1024, 1)
+
+            # Disk parsing
+            disk_lines = parts[2].strip().split('\n')
+            disk_tot = disk_used = 0
+            if len(disk_lines) > 1:
+                cols = disk_lines[1].split()
+                disk_tot = int(cols[1].replace('G', ''))
+                disk_used = int(cols[2].replace('G', ''))
+
+            # CPU parsing
+            cpu_line = parts[3].strip()
+            cpu_percent = 0
+            if cpu_line:
+                idle_str = [x for x in cpu_line.split(',') if 'id' in x]
+                if idle_str:
+                    idle_val = float(idle_str[0].strip().split()[0])
+                    cpu_percent = round(100.0 - idle_val)
+
+            return {
+                "status": "connected",
+                "cpu_percent": cpu_percent,
+                "ram_curr_gb": ram_curr,
+                "ram_tot_gb": ram_tot,
+                "swap_curr_gb": swap_curr,
+                "swap_tot_gb": swap_tot,
+                "load_avg": load_avg,
+                "disk_used_gb": disk_used,
+                "disk_tot_gb": disk_tot
+            }
+            
+        except Exception as e:
+            print(f"Failed to fetch remote vitals: {e}")
+            # 네트워크가 끊어졌다면 다음 시도를 위해 세션을 초기화합니다.
+            if self._persistent_ssh:
+                self._persistent_ssh.close()
+                self._persistent_ssh = None
+            return {"status": "disconnected"}
+

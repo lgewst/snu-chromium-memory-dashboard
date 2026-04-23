@@ -2,6 +2,8 @@ import multiprocessing
 import os
 import signal
 import psutil
+import threading
+import time
 import json
 from flask import Flask, jsonify, send_from_directory, request, render_template
 from pipeline import ChromiumPipeline
@@ -9,6 +11,91 @@ from pipeline import ChromiumPipeline
 app = Flask(__name__)
 app.shared_state = None
 app.pipeline_process = None
+
+vitals_cache = {
+    "data": {"status": "disconnected"},
+    "last_updated": 0,
+    "last_client_request": 0
+}
+
+def background_vitals_updater():
+    """
+    스마트 백그라운드 리소스 수집기 (Lazy Polling 적용)
+    클라이언트(대시보드)가 활성화되어 있을 때만 3초 주기로 데이터를 수집하며,
+    요청이 없으면 유휴 상태(Sleep)로 전환하여 서버 부하와 SSH 오버헤드를 방지합니다.
+    """
+    global vitals_cache
+    pipeline = ChromiumPipeline() # 무한 루프 밖에서 한 번만 인스턴스화
+    
+    # cpu_percent 초기화 (첫 호출은 0.0 반환 방지)
+    psutil.cpu_percent(interval=None) 
+
+    while True:
+        now = time.time()
+        
+        # [핵심 최적화] 프론트엔드 요청이 30초 이상 없으면 아무것도 안 하고 대기 (Idle Mode)
+        # 탭을 닫았거나 브라우저를 최소화했을 때 불필요한 원격 서버 SSH 폭격을 막아줍니다.
+        if now - vitals_cache["last_client_request"] > 30:
+            time.sleep(2) 
+            continue
+
+        settings = ChromiumPipeline.load_settings()
+        is_server_mode = settings.get('use_ssh', False)
+
+        try:
+            if is_server_mode:
+                # 파이프라인의 내부 설정만 최신화 (인스턴스를 매번 새로 만들지 않음)
+                pipeline.settings = settings 
+                pipeline.ssh_config = settings.get('ssh_config', {})
+                
+                data = pipeline.get_remote_vitals()
+                if data:
+                    vitals_cache["data"] = data
+            else:
+                # 로컬 수집 로직
+                cpu = psutil.cpu_percent(interval=None)
+                ram = psutil.virtual_memory()
+                swap = psutil.swap_memory()
+                disk = psutil.disk_usage(settings.get('local_chromium_path', os.getcwd()) or '/')
+                load = os.getloadavg() if hasattr(os, 'getloadavg') else (0.0, 0.0, 0.0)
+
+                vitals_cache["data"] = {
+                    "status": "connected",
+                    "cpu_percent": round(cpu),
+                    "ram_curr_gb": round(ram.used / (1024**3), 1),
+                    "ram_tot_gb": round(ram.total / (1024**3), 1),
+                    "swap_curr_gb": round(swap.used / (1024**3), 1),
+                    "swap_tot_gb": round(swap.total / (1024**3), 1),
+                    "load_avg": f"{load[0]:.2f}, {load[1]:.2f}, {load[2]:.2f}",
+                    "disk_used_gb": round(disk.used / (1024**3)),
+                    "disk_tot_gb": round(disk.total / (1024**3))
+                }
+            
+            vitals_cache["last_updated"] = time.time()
+            
+        except Exception as e:
+            print(f"Vitals update error: {e}")
+            vitals_cache["data"] = {"status": "disconnected"}
+
+        # 작업 완료 후 3초 휴식
+        time.sleep(3)
+
+@app.route('/api/vitals', methods=['GET'])
+def get_vitals():
+    """
+    프론트엔드에서 시스템 상태를 요청할 때 호출되는 API.
+    요청이 들어올 때마다 클라이언트 활성 시간을 갱신하여 백그라운드 스레드를 깨웁니다.
+    """
+    global vitals_cache
+    
+    # 클라이언트가 살아있음을 백그라운드 스레드에 알림 (Heartbeat)
+    vitals_cache["last_client_request"] = time.time() 
+    
+    # 캐시가 10초 이상 갱신되지 않았다는 것은, 연결에 문제가 생겼거나 스레드가 죽었음을 의미
+    if time.time() - vitals_cache["last_updated"] > 10:
+        return jsonify({"status": "disconnected", "reason": "cache_stale"})
+        
+    return jsonify(vitals_cache["data"])
 
 def run_pipeline_task(state):
     """
@@ -303,6 +390,10 @@ if __name__ == '__main__':
             webbrowser.open(url)
     except Exception as e:
         print(f" * Could not open browser automatically: {e}")
+
+    # vitals
+    vitals_thread = threading.Thread(target=background_vitals_updater, daemon=True)
+    vitals_thread.start()
     
     # Launch Flask server
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

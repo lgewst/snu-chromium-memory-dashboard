@@ -207,4 +207,227 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial load
     updateStatus();
     fetchResults();
+
+    // Initial load
+    updateStatus();
+    fetchResults();
+
+
+    // ================================================================================================
+    // --- Vitals Widget Logic ---
+    // ================================================================================================
+    const vitalsContainer = document.getElementById('vitalsContainer');
+    const vitalsIndicator = document.getElementById('vitalsIndicator');
+    const vitalDetailsText = document.getElementById('vitalDetailsText');
+    const vitalsTimerText = document.getElementById('vitalsTimerText');
+    const vitalsRefreshBtn = document.getElementById('vitalsRefreshBtn');
+
+    let isVitalsExpanded = false;
+    let isServerMode = false;
+
+    let countdown = 15;
+    let timerInterval = null;
+    let isFetching = false;
+
+    // 1. 위젯 클릭 시 Toggle 및 갱신 주기 변경
+    if (vitalsContainer) {
+        vitalsContainer.addEventListener('click', (event) => {
+            vitalsContainer.classList.toggle('expanded');
+            isVitalsExpanded = vitalsContainer.classList.contains('expanded');
+
+            if (isVitalsExpanded) {
+                forceRefreshVitals();
+            } else {
+                countdown = 15;
+                updateTimerUI();
+            }
+        });
+    }
+
+    // 3. 수동 새로고침 버튼 클릭 (버블링 방지)
+    if (vitalsRefreshBtn) {
+        vitalsRefreshBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            forceRefreshVitals();
+        });
+    }
+
+    /**
+     * Mocking
+     */
+    const fetchLocalMockVitals = async () => {
+        return new Promise(resolve => setTimeout(() => {
+            const diskTot = 500;
+            const diskUsed = Math.floor(Math.random() * 480); // 0 ~ 480 사용
+            resolve({
+                status: "connected",
+                cpu_percent: Math.floor(Math.random() * 60),
+                ram_curr_gb: (Math.random() * 8 + 4).toFixed(1), // 4 ~ 12
+                ram_tot_gb: 16.0,
+                swap_curr_gb: (Math.random() * 2).toFixed(1),
+                swap_tot_gb: 4.0,
+                load_avg: "0.45, 0.55, 0.61",
+                disk_used_gb: diskUsed,
+                disk_tot_gb: diskTot
+            });
+        }, 300));
+    };
+
+    const fetchServerMockVitals = async () => {
+        return new Promise(resolve => setTimeout(() => {
+            // 서버 연결 불량 시뮬레이션 (10% 확률)
+            if (Math.random() < 0.1) return resolve({ status: "disconnected" });
+
+            const diskTot = 2000;
+            const diskUsed = Math.floor(Math.random() * 1960);
+            resolve({
+                status: "connected",
+                cpu_percent: Math.floor(Math.random() * 50) + 40, // 40 ~ 90%
+                ram_curr_gb: (Math.random() * 40 + 10).toFixed(1), // 10 ~ 50
+                ram_tot_gb: 64.0,
+                swap_curr_gb: (Math.random() * 5 + 1).toFixed(1),
+                swap_tot_gb: 16.0,
+                load_avg: "2.14, 1.85, 1.50",
+                disk_used_gb: diskUsed,
+                disk_tot_gb: diskTot
+            });
+        }, 300));
+    };
+
+    /**
+     * 데이터를 받아 UI(텍스트, 색상)를 업데이트
+     */
+    const updateVitalsUI = (data) => {
+        if (!vitalsIndicator || !vitalDetailsText) return;
+
+        if (data.status === "disconnected") {
+            vitalsIndicator.style.backgroundColor = 'var(--vital-danger)';
+            vitalDetailsText.innerHTML = "<strong>Connection Error</strong>";
+            return;
+        }
+
+        const ramPercent = (data.ram_curr_gb / data.ram_tot_gb) * 100;
+        const diskFree = data.disk_tot_gb - data.disk_used_gb;
+
+        let statusColor = 'var(--vital-good)';
+        const isDanger = diskFree <= 45;
+        const isWarning = diskFree <= 50 || data.cpu_percent >= 50 || ramPercent >= 50;
+
+        if (isDanger) statusColor = 'var(--vital-danger)';
+        else if (isWarning) statusColor = 'var(--vital-warning)';
+
+        vitalsIndicator.style.backgroundColor = statusColor;
+
+        vitalDetailsText.innerHTML = `
+            <i class="fa-solid fa-memory vitals-icon" title="Memory(Swap)"></i> ${data.ram_curr_gb}/${data.ram_tot_gb}GB (${data.swap_curr_gb}/${data.swap_tot_gb}GB) 
+            <span class="vitals-divider">|</span> 
+            <i class="fa-solid fa-microchip vitals-icon" title="CPU"></i> ${data.cpu_percent}% 
+            <span class="vital-sys">
+                <span class="vitals-divider">|</span> 
+                <i class="fa-solid fa-desktop vitals-icon" title="System Load"></i> ${data.load_avg} 
+            </span>
+            <span class="vital-disk">
+                <span class="vitals-divider">|</span> 
+                <i class="fa-solid fa-hard-drive vitals-icon" title="Disk"></i> ${data.disk_used_gb}/${data.disk_tot_gb}GB
+            </span>
+        `;
+    };
+
+    /**
+     * 실제 데이터 Fetch
+     */
+    const fetchAndUpdateVitals = async () => {
+        if (isFetching) return;
+        isFetching = true;
+
+        try {
+            const response = await fetch('/api/vitals'); 
+            const data = await response.json();
+            // const data = isServerMode ? await fetchServerMockVitals() : await fetchLocalMockVitals();
+            updateVitalsUI(data);
+        } catch (error) {
+            console.error("Vitals Error:", error);
+            if (vitalsIndicator) vitalsIndicator.style.backgroundColor = '#95a5a6';
+            if (vitalDetailsText) vitalDetailsText.innerHTML = "Error fetching data.";
+        } finally {
+            isFetching = false;
+        }
+    };
+
+    /**
+     * 카운트다운 타이머 UI 업데이트
+     */
+    const updateTimerUI = () => {
+        if (vitalsTimerText) {
+            vitalsTimerText.innerText = `Refreshing in ${countdown}s...`;
+        }
+    };
+
+    /**
+     * 즉시 갱신 및 카운트다운 초기화
+     */
+    const forceRefreshVitals = () => {
+        countdown = isVitalsExpanded ? 5 : 15;
+        if (isVitalsExpanded) {
+            vitalsTimerText.innerText = "Refreshing...";
+        }
+        fetchAndUpdateVitals();
+    };
+
+    /**
+     * 1초마다 실행되는 메인 타이머 루프
+     */
+    const startVitalsTimerLoop = () => {
+        if (timerInterval) clearInterval(timerInterval);
+
+        timerInterval = setInterval(() => {
+            // [DEEP DIVE] 브라우저 탭이 숨겨져 있으면(다른 탭을 보고 있으면) 카운트다운을 멈춥니다.
+            if (document.hidden) return; 
+
+            countdown--;
+
+            if (countdown <= 0) {
+                forceRefreshVitals();
+            } else {
+                if (isVitalsExpanded) updateTimerUI();
+            }
+        }, 1000);
+    };
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            // 유저가 이 탭으로 다시 돌아왔을 때!
+            console.log("Welcome back! Refreshing vitals...");
+            forceRefreshVitals();
+        }
+    });
+
+    /**
+     * 초기화 (설정값 동기화 후 타이머 시작)
+     */
+    const syncVitalsLabel = async () => {
+        const vitalsLabel = document.getElementById('vitalsLabel');
+        if (!vitalsLabel) return;
+
+        try {
+            const response = await fetch('/api/settings');
+            const settings = await response.json();
+            isServerMode = !!settings.use_ssh;
+            vitalsLabel.innerText = isServerMode ? 'Server' : 'Local';
+        } catch (error) {
+            vitalsLabel.innerText = 'Local (Err)';
+            isServerMode = false;
+        }
+    };
+
+    // Vitals 모듈 시작
+    syncVitalsLabel().then(() => {
+        if (vitalsContainer) {
+            forceRefreshVitals(); // 첫 데이터 로드
+            startVitalsTimerLoop(); // 타이머 가동
+        }
+    });
+    // ================================================================================================
+    // --- end Vitals Widget Logic ---
+    // ================================================================================================
 });

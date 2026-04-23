@@ -9,6 +9,10 @@
     --text-color: #333;
     --sidebar-width: 240px;
     --sidebar-collapsed-width: 70px;
+    /* Vitals Status Colors*/
+    --vital-good: #2ecc71;
+    --vital-warning: #f39c12;
+    --vital-danger: #e74c3c;
 }
 
 body {
@@ -311,3 +315,138 @@ th, td {
 .file-list li:hover { background-color: #f9f9f9; }
 .current-path { background: #eee; padding: 10px; border-radius: 4px; font-family: monospace; margin-bottom: 15px; }
 .close-modal { font-size: 28px; cursor: pointer; }
+
+
+/* -------------------------------------------------------------------------- */
+/* --- Vitals Widget Styles --- */
+/* -------------------------------------------------------------------------- */
+.vitals-row {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 15px;
+    height: 38px;
+}
+
+.vitals-container {
+    display: flex;
+    align-items: center;
+    background: var(--bg-color);
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    padding: 4px 16px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+    transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+    max-width: 120px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.vitals-container.expanded {
+    max-width: 95%; 
+    background: white;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.vitals-base {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.vitals-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: var(--vital-good);
+    transition: background-color 0.3s ease;
+}
+
+.vitals-expanded-content {
+    display: flex;
+    align-items: center;
+    opacity: 0;
+    visibility: hidden;
+    max-width: 0;
+    transition: all 0.3s ease;
+}
+
+.vitals-container.expanded .vitals-expanded-content {
+    opacity: 1;
+    visibility: visible;
+    max-width: 1000px;
+    margin-left: 0;
+}
+
+.vitals-icon {
+    color: #7f8c8d;
+    margin-right: 4px;
+    font-size: 0.9rem;
+    vertical-align: middle;
+}
+
+.vitals-divider {
+    color: #ccc;
+    margin: 0 5px;
+    font-weight: 300;
+}
+
+#vitalDetailsText {
+    color: #555;
+    font-family: monospace;
+    font-size: 0.9rem;
+}
+
+.vitals-timer {
+    color: #95a5a6;
+    font-size: 0.8rem;
+    margin-left: 6px;
+    display: inline-block;
+    width: 115px;
+    text-align: right;
+}
+
+@media (max-width: 1000px) {
+    .vitals-timer {
+        display: none;
+    }
+    .vitals-divider {
+        margin: 0 6px;
+    }
+}
+
+.vitals-refresh-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 2px;
+    border-radius: 4px;
+    transition: transform 0.2s, background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.vitals-refresh-btn:hover {
+    background: #eee;
+    transform: rotate(30deg);
+}
+
+@media (max-width: 1000px) {
+    .vitals-timer {
+        display: none;
+    }
+    .vitals-divider {
+        margin: 0 6px;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* --- end Vitals Widget Styles --- */
+/* -------------------------------------------------------------------------- */

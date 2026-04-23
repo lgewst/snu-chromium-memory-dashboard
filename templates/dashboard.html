@@ -2,6 +2,7 @@
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 {% endblock %}
 
 {% block content %}
@@ -14,6 +15,24 @@
         <button id="startBtn" class="btn btn-primary">Start Measurement</button>
         <button id="stopBtn" class="btn btn-danger" disabled>Stop Measurement</button>
     </div>
+
+    <div class="vitals-row">
+        <div class="vitals-container" id="vitalsContainer">
+            <div class="vitals-base" id="vitalsSummary">
+                <span id="vitalsLabel">Local</span>
+                <span class="vitals-indicator" id="vitalsIndicator"></span>
+            </div>
+            
+            <div class="vitals-expanded-content" id="vitalsExpandedContent">
+                <span class="vitals-divider">|</span>
+                <span id="vitalDetailsText">Loading...</span>
+                <span class="vitals-divider">|</span>
+                <button class="vitals-refresh-btn" id="vitalsRefreshBtn" title="Force Refresh">🔄</button>
+                <span class="vitals-timer" id="vitalsTimerText"></span>
+            </div>
+        </div>
+    </div>
+
     <div id="status" class="status-indicator">Status: Idle</div>
 </div>
 
