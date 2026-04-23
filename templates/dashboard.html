@@ -11,6 +11,11 @@
 </div>
 
 <div class="controls-card">
+    <div class="controls-row">
+        <button id="startBtn" class="btn btn-primary">Start Measurement</button>
+        <button id="stopBtn" class="btn btn-danger" disabled>Stop Measurement</button>
+    </div>
+
     <div class="vitals-row">
         <div class="vitals-container" id="vitalsContainer">
             <div class="vitals-base" id="vitalsSummary">
@@ -26,11 +31,6 @@
                 <span class="vitals-timer" id="vitalsTimerText"></span>
             </div>
         </div>
-    </div>
-
-    <div class="controls-row">
-        <button id="startBtn" class="btn btn-primary">Start Measurement</button>
-        <button id="stopBtn" class="btn btn-danger" disabled>Stop Measurement</button>
     </div>
 
     <div id="status" class="status-indicator">Status: Idle</div>
