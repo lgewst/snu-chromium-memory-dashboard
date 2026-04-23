@@ -1,13 +1,76 @@
 [
-  { "id": "1", "build_flags": [], "runtime_flags": ["--enable-low-end-device-mode"] },
-  { "id": "2", "build_flags": [], "runtime_flags": ["--single-process"] },
-  { "id": "3", "build_flags": [], "runtime_flags": ["--no-sandbox", "--no-zygote"] },
-  { "id": "4", "build_flags": [], "runtime_flags": ["--disable-remote-fonts"] },
-  { "id": "5", "build_flags": [], "runtime_flags": ["--single-threaded"] },
-  { "id": "6", "build_flags": [], "runtime_flags": ["--memory-balancer"] },
-  { "id": "7", "build_flags": [], "runtime_flags": ["--max_heap_size=64"] },
-  { "id": "8", "build_flags": ["enable_nacl=false"], "runtime_flags": [] },
-  { "id": "9", "build_flags": ["v8_enable_i18n_support=false"], "runtime_flags": [] },
-  { "id": "10", "build_flags": ["v8_enable_i18n_support=false"], "runtime_flags": [] }
-  
+  {
+    "build_flags": [],
+    "id": "1",
+    "runtime_flags": [
+      "--enable-low-end-device-mode"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "2",
+    "runtime_flags": [
+      "--single-process"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "3",
+    "runtime_flags": [
+      "--no-sandbox",
+      "--no-zygote"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "4",
+    "runtime_flags": [
+      "--disable-remote-fonts"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "5",
+    "runtime_flags": [
+      "--single-threaded"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "6",
+    "patch": null,
+    "runtime_flags": [
+      "--memory-balancer"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "7",
+    "patch": null,
+    "runtime_flags": [
+      "--max_heap_size=64"
+    ]
+  },
+  {
+    "build_flags": [
+      "enable_nacl=false"
+    ],
+    "id": "8",
+    "runtime_flags": []
+  },
+  {
+    "build_flags": [
+      "v8_enable_i18n_support=false"
+    ],
+    "id": "9",
+    "runtime_flags": []
+  },
+  {
+    "build_flags": [
+      "enable_extensions=false"
+    ],
+    "id": "10",
+    "patch": null,
+    "runtime_flags": []
+  }
 ]

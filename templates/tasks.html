@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="content-header task-header">
+    <h1>Task Management</h1>
+    <div class="header-actions">
+        <button id="openSingleAddBtn" class="btn btn-primary">+ Single Add</button>
+        <button id="openBulkAddBtn" class="btn btn-success">+ Bulk Add</button>
+    </div>
+</div>
+
+<div class="features-list-container card">
+    <div class="table-responsive fixed-height-table">
+        <table id="featuresTable" class="fixed-table">
+            <thead>
+                <tr>
+                    <th style="width: 60px;">ID</th>
+                    <th style="width: 25%;">Build Flags</th>
+                    <th style="width: 25%;">Runtime Flags</th>
+                    <th style="width: 30%;">Patch</th>
+                    <th style="width: 100px;">Status</th>
+                    <th style="width: 140px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Populated by JS -->
+            </tbody>
+        </table>
+    </div>
+    <div class="pagination-footer">
+        <div class="pagination-controls">
+            <button id="prevPage" class="btn btn-secondary btn-sm" disabled>Previous</button>
+            <span id="pageCounter">1 / 1</span>
+            <button id="nextPage" class="btn btn-secondary btn-sm" disabled>Next</button>
+        </div>
+    </div>
+</div>
+
+<!-- Single Add Overlay -->
+<div id="singleAddOverlay" class="overlay">
+    <div class="overlay-content">
+        <div class="overlay-header">
+            <h3>Add New Memory Feature</h3>
+            <span class="close-overlay" data-target="singleAddOverlay">&times;</span>
+        </div>
+        <div class="overlay-body">
+            <form id="addTaskForm" class="task-form-vertical">
+                <div class="form-group">
+                    <label for="buildFlags">Build Flags (GN Arguments)</label>
+                    <input type="text" id="buildFlags" placeholder="e.g., is_debug=false">
+                </div>
+                <div class="form-group">
+                    <label for="runtimeFlags">Runtime Flags (Chrome switches)</label>
+                    <input type="text" id="runtimeFlags" placeholder="e.g., --single-process">
+                </div>
+                <div class="form-group">
+                    <label for="patchFile">Patch File</label>
+                    <div class="input-with-button">
+                        <div class="autocomplete-container">
+                            <input type="text" id="patchFile" placeholder="e.g., v8_opt.patch" autocomplete="off">
+                            <div id="patchAutocomplete" class="autocomplete-list" style="display: none;"></div>
+                        </div>
+                        <button type="button" class="btn btn-secondary browse-btn">Browse</button>
+                    </div>
+                    <small class="patch-dir-display" style="color: #666;"></small>
+                </div>
+                <div class="overlay-footer">
+                    <button type="submit" class="btn btn-primary">Add Feature</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Add Overlay -->
+<div id="bulkAddOverlay" class="overlay">
+    <div class="overlay-content bulk-content">
+        <div class="overlay-header">
+            <h3>Bulk Add Features (Combinatorial)</h3>
+            <span class="close-overlay" data-target="bulkAddOverlay">&times;</span>
+        </div>
+        <div class="overlay-body scrollable-body">
+            <div class="bulk-form-vertical">
+                <div class="form-group">
+                    <label>1. Fixed Build Flags (Common to all)</label>
+                    <input type="text" id="fixedBuildFlags" placeholder="is_official_build=true">
+                </div>
+                <div class="form-group">
+                    <label>2. Individual Build Groups (Combinatorial)</label>
+                    <div class="input-append">
+                        <input type="text" id="newBuildGroup" placeholder="enable_nacl=false">
+                        <button type="button" id="addBuildGroup" class="btn btn-sm btn-primary">Add</button>
+                    </div>
+                    <ul id="buildGroupList" class="bulk-list"></ul>
+                </div>
+                <div class="form-group">
+                    <label>3. Fixed Runtime Flags (Common to all)</label>
+                    <input type="text" id="fixedRuntimeFlags" placeholder="--enable-low-end-device-mode">
+                </div>
+                <div class="form-group">
+                    <label>4. Individual Runtime Groups (Combinatorial)</label>
+                    <div class="input-append">
+                        <input type="text" id="newRuntimeGroup" placeholder="--no-sandbox">
+                        <button type="button" id="addRuntimeGroup" class="btn btn-sm btn-primary">Add</button>
+                    </div>
+                    <ul id="runtimeGroupList" class="bulk-list"></ul>
+                </div>
+                <div class="form-group">
+                    <label>5. Patch Files (Combinatorial)</label>
+                    <div class="input-with-button">
+                        <div class="autocomplete-container">
+                            <input type="text" id="newPatchEntry" placeholder="fix.patch" autocomplete="off">
+                            <div id="bulkPatchAutocomplete" class="autocomplete-list" style="display: none;"></div>
+                        </div>
+                        <button type="button" id="addPatchEntry" class="btn btn-sm btn-primary">Add</button>
+                        <button type="button" class="btn btn-sm btn-secondary browse-btn">Browse</button>
+                    </div>
+                    <ul id="patchEntryList" class="bulk-list"></ul>
+                    <small class="patch-dir-display" style="color: #666;"></small>
+                </div>
+            </div>
+        </div>
+        <div class="overlay-footer">
+            <button id="generateBulkBtn" class="btn btn-success">Generate & Add All</button>
+        </div>
+    </div>
+</div>
+
+<!-- Path Browser Modal -->
+<div id="pathModal" class="modal" style="z-index: 5000;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Select Patch Directory</h3>
+            <span class="close-modal" id="closeModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div id="currentPath" class="current-path"></div>
+            <ul id="fileList" class="file-list"></ul>
+        </div>
+        <div class="modal-footer">
+            <button id="selectCurrentDir" class="btn btn-primary">Select Current Directory</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='tasks.js') }}"></script>
+{% endblock %}

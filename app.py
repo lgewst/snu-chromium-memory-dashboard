@@ -185,6 +185,71 @@ def settings_page():
     """
     return render_template('settings.html')
 
+@app.route('/tasks')
+def tasks_page():
+    """
+    Serves the task management page.
+    
+    Returns:
+        str: Rendered tasks.html template.
+    """
+    return render_template('tasks.html')
+
+@app.route('/api/features', methods=['GET'])
+def get_features():
+    """
+    API endpoint to fetch all defined memory features from memory_features.json.
+    
+    Returns:
+        Response: JSON list of all features.
+    """
+    if os.path.exists('memory_features.json'):
+        with open('memory_features.json', 'r') as f:
+            try: return jsonify(json.load(f))
+            except: return jsonify([])
+    return jsonify([])
+
+@app.route('/api/features', methods=['POST'])
+def save_features():
+    """Updates the entire memory_features.json file."""
+    try:
+        features = request.json
+        with open('memory_features.json', 'w') as f:
+            json.dump(features, f, indent=2)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/features/reorder', methods=['POST'])
+def reorder_features():
+    """Updates the order of features based on frontend drag-and-drop."""
+    return save_features()
+
+@app.route('/api/patches', methods=['GET'])
+def list_patches():
+    """Lists all .patch files in the default or custom patch directory."""
+    settings = ChromiumPipeline.load_settings()
+    patch_dir = settings.get('custom_patch_dir')
+    
+    # Fallback to local 'patches' directory if no custom dir is set
+    if not patch_dir or not os.path.isabs(patch_dir):
+        patch_dir = os.path.join(os.getcwd(), 'patches')
+    
+    patches = []
+    if os.path.exists(patch_dir):
+        try:
+            for f in os.listdir(patch_dir):
+                if f.endswith('.patch'):
+                    patches.append({
+                        "name": f,
+                        "full_path": os.path.join(patch_dir, f),
+                        "is_absolute": os.path.isabs(settings.get('custom_patch_dir', ''))
+                    })
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+            
+    return jsonify({"patch_dir": patch_dir, "patches": sorted(patches, key=lambda x: x['name'])})
+
 @app.route('/api/settings', methods=['GET'])
 def get_settings():
     """

@@ -1,14 +1,25 @@
+/**
+ * @file script.js
+ * @description Main entry point for the Dashboard UI. Handles real-time status updates,
+ *              result visualization via Chart.js, and sidebar management.
+ */
+
 document.addEventListener('DOMContentLoaded', () => {
     // Sidebar toggle functionality
     const sidebar = document.getElementById('sidebar');
     const toggleBtnSidebar = document.getElementById('sidebarToggle');
 
-    // Remove the init class and apply the proper collapsed class if needed
+    /**
+     * Initializes sidebar state based on pre-rendered classes and local storage.
+     */
     if (document.documentElement.classList.contains('sidebar-collapsed-init')) {
         sidebar.classList.add('collapsed');
         document.documentElement.classList.remove('sidebar-collapsed-init');
     }
 
+    /**
+     * Toggles the sidebar visibility and persists the state in local storage.
+     */
     function toggleSidebar() {
         sidebar.classList.toggle('collapsed');
         localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
@@ -16,13 +27,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (toggleBtnSidebar) toggleBtnSidebar.onclick = toggleSidebar;
 
-    // DOM Element References
+    // DOM Element References for Dashboard functionality
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const statusDiv = document.getElementById('status');
     const resultsTableBody = document.querySelector('#resultsTable tbody');
     const memoryChartCanvas = document.getElementById('memoryChart');
     
+    // Guard clause for non-dashboard pages
     if (!startBtn || !stopBtn || !statusDiv || !resultsTableBody || !memoryChartCanvas) {
         console.log("Dashboard elements not found, skipping dashboard initialization.");
         return;
@@ -35,7 +47,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Fetches the current execution status from the backend.
-     * Updates the status text and enables/disables control buttons.
+     * Updates the status text and enables/disables control buttons based on whether
+     * the pipeline process is active.
+     * @async
      */
     const updateStatus = async () => {
         try {
@@ -58,7 +72,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Fetches all measurement results and updates the UI.
-     * Includes logic to avoid unnecessary re-renders if data hasn't changed.
+     * Includes logic to avoid unnecessary re-renders if data count hasn't changed,
+     * which prevents disruptive chart animation resets.
+     * @async
      */
     const fetchResults = async () => {
         try {
@@ -77,7 +93,10 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
-     * Helper to calculate median of an array.
+     * Helper to calculate the median of a numeric array.
+     * Used for aggregating memory peak values across multiple iterations.
+     * @param {number[]} arr - Array of numbers.
+     * @returns {number} The calculated median.
      */
     const calculateMedian = (arr) => {
         if (!arr.length) return 0;
@@ -88,6 +107,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Rebuilds the results table with the latest data.
+     * Aggregates iteration peaks into a single median peak value per task.
+     * @param {Object[]} results - Array of result objects from the backend.
      */
     const updateTable = (results) => {
         resultsTableBody.innerHTML = '';
@@ -128,6 +149,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Updates the Chart.js visualization.
+     * Renders a bar chart showing median memory usage indexed by Feature ID.
+     * @param {Object[]} results - Array of result objects from the backend.
      */
     const updateChart = (results) => {
         const labels = results.map(r => r.id);
@@ -149,7 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return calculateMedian(allIterationPeaks);
         });
 
-        // Clear existing chart instance if it exists
+        // Clear existing chart instance if it exists to avoid overlaying charts
         if (memoryChart) {
             memoryChart.destroy();
         }
@@ -182,14 +205,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // Event Listeners for UI Buttons
+    /**
+     * Start Pipeline execution.
+     */
     startBtn.addEventListener('click', async () => {
         await fetch('/api/start', { method: 'POST' });
         updateStatus();
     });
 
+    /**
+     * Stop Pipeline execution and clean up processes.
+     */
     stopBtn.addEventListener('click', async () => {
-        // Disable both buttons immediately to prevent multiple clicks
+        // Disable both buttons immediately to prevent multiple clicks during cleanup
         startBtn.disabled = true;
         stopBtn.disabled = true;
         statusDiv.innerText = 'Status: Stopping processes... please wait.';
@@ -198,13 +226,15 @@ document.addEventListener('DOMContentLoaded', () => {
         updateStatus();
     });
 
-    // Polling intervals for real-time dashboard updates
+    /**
+     * Polling intervals for real-time dashboard updates (every 3 seconds).
+     */
     setInterval(() => {
         updateStatus();
         fetchResults();
     }, 3000);
 
-    // Initial load
+    // Initial load for immediate feedback
     updateStatus();
     fetchResults();
 
