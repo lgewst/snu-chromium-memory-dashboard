@@ -1,0 +1,76 @@
+[
+  {
+    "build_flags": [],
+    "id": "1",
+    "runtime_flags": [
+      "--enable-low-end-device-mode"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "2",
+    "runtime_flags": [
+      "--single-process"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "3",
+    "runtime_flags": [
+      "--no-sandbox",
+      "--no-zygote"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "4",
+    "runtime_flags": [
+      "--disable-remote-fonts"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "5",
+    "runtime_flags": [
+      "--single-threaded"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "6",
+    "patch": null,
+    "runtime_flags": [
+      "--memory-balancer"
+    ]
+  },
+  {
+    "build_flags": [],
+    "id": "7",
+    "patch": null,
+    "runtime_flags": [
+      "--max_heap_size=64"
+    ]
+  },
+  {
+    "build_flags": [
+      "enable_nacl=false"
+    ],
+    "id": "8",
+    "runtime_flags": []
+  },
+  {
+    "build_flags": [
+      "v8_enable_i18n_support=false"
+    ],
+    "id": "9",
+    "runtime_flags": []
+  },
+  {
+    "build_flags": [
+      "enable_extensions=false"
+    ],
+    "id": "10",
+    "patch": null,
+    "runtime_flags": []
+  }
+]

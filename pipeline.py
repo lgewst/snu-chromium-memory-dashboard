@@ -96,6 +96,7 @@ class ChromiumPipeline:
             state (multiprocessing.managers.DictProxy, optional): A shared dictionary object 
                 provided by the Flask app to track real-time pipeline status for the frontend.
         """
+        self.settings_path = settings_path
         self.state = state
         self.settings = self.load_settings(settings_path)
         
@@ -107,6 +108,10 @@ class ChromiumPipeline:
 
         self._persistent_ssh = None
         
+        # Initialize patch states tracking if not exists
+        if 'patch_states' not in self.settings:
+            self.settings['patch_states'] = {}
+        
         if self.settings.get('debug', True):
             log_mode = 'w' if self.settings.get('refresh_log', True) else 'a'
             logging.basicConfig(
@@ -116,7 +121,40 @@ class ChromiumPipeline:
                 format='%(asctime)s - %(levelname)s - %(message)s',
                 force=True
             )
-            logging.info(f"Pipeline initialized. use_ssh: {self.use_ssh}")
+            logging.info(f"Pipeline initialized. use_ssh: {self.use_ssh}, current_key: {self._get_state_key()}")
+
+    def _get_state_key(self):
+        """
+        Generates a unique key for the current execution environment.
+        Returns 'local' or 'ssh:{host}:{user}'.
+        """
+        if not self.use_ssh:
+            return "local"
+        host = self.ssh_config.get('host', 'unknown')
+        user = self.ssh_config.get('user', 'unknown')
+        return f"ssh:{host}:{user}"
+
+    @property
+    def current_patch_id(self):
+        """Returns the currently recorded patch for the current environment."""
+        return self.settings['patch_states'].get(self._get_state_key())
+
+    @current_patch_id.setter
+    def current_patch_id(self, value):
+        """Updates and persists the patch state for the current environment."""
+        key = self._get_state_key()
+        self.settings['patch_states'][key] = value
+        self._save_settings()
+
+    def _save_settings(self):
+        """
+        Persists the current internal settings (like patch_states) back to settings.json.
+        """
+        try:
+            with open(self.settings_path, 'w') as f:
+                json.dump(self.settings, f, indent=2)
+        except Exception as e:
+            logging.error(f"Failed to save settings: {e}")
 
     def _update_status(self, msg):
         """
@@ -492,8 +530,8 @@ class ChromiumPipeline:
         
         # Dependency installation with robust pathing
         self._update_status(f"Checking remote dependencies...")
-        dep_install_cmd = "python3 -m pip install selenium psutil --user"
-        ssh.exec_command(dep_install_cmd)
+        dep_check_cmd = "python3 -c 'import selenium, psutil' 2>/dev/null || python3 -m pip install selenium psutil --user"
+        ssh.exec_command(dep_check_cmd)
 
         try:
             with open('remote_agent.py', 'r') as f:
@@ -553,6 +591,95 @@ class ChromiumPipeline:
             print(f"Remote measurement failed: {e}")
             return []
 
+    def _resolve_patch_path(self, patch_val):
+        """
+        Determines the full local path for a patch file.
+        If patch_val is just a filename, looks in the 'patches/' directory.
+        Otherwise, treats it as an absolute path.
+
+        Args:
+            patch_val (str): The patch filename or path.
+
+        Returns:
+            str|None: Full path to the patch file, or None if not found.
+        """
+        if not patch_val: return None
+        
+        # If it's a relative filename, look in the patches/ directory
+        if not os.path.isabs(patch_val):
+            potential_path = os.path.join(os.getcwd(), "patches", patch_val)
+            if os.path.exists(potential_path):
+                return potential_path
+        
+        # Check if it's an absolute path that exists
+        if os.path.exists(patch_val):
+            return patch_val
+            
+        return None
+
+    def _manage_patches(self, patch_val):
+        """
+        Applies or reverts patches to the Chromium source tree.
+        Optimizes by skipping re-application if the same patch is already active.
+        Supports both local and remote (SSH) git repositories.
+
+        Args:
+            patch_val (str|None): The path/ID of the target patch.
+
+        Returns:
+            bool: True if patching succeeded or was skipped (already applied).
+        """
+        target_patch_path = self._resolve_patch_path(patch_val)
+        
+        # 1. Skip if already applied
+        if self.current_patch_id == target_patch_path:
+            self._update_status(f"Patch {patch_val or 'None'} already applied. Skipping.")
+            return True
+
+        self._update_status(f"Managing patches: Transitioning from {self.current_patch_id} to {target_patch_path}")
+
+        # 2. Cleanup: Hard reset source tree to a clean state
+        # This removes any previous patches or uncommitted changes.
+        cleanup_cmd = "git checkout -- . && git clean -df"
+        cwd = self.ssh_config.get('chromium_path') if self.use_ssh else self.local_chromium_path
+        
+        success, _ = self.run_command(cleanup_cmd, cwd=cwd)
+        if not success:
+            self._update_status("Error: Failed to reset Chromium source tree.")
+            self.current_patch_id = None # Unknown state
+            return False
+
+        # 3. Apply new patch if provided
+        if target_patch_path:
+            if self.use_ssh:
+                # SSH: Upload local patch to remote temporary location and apply
+                ssh = self._get_ssh_client()
+                if not ssh: return False
+                try:
+                    sftp = ssh.open_sftp()
+                    remote_patch_tmp = f"/tmp/{os.path.basename(target_patch_path)}"
+                    sftp.put(target_patch_path, remote_patch_tmp)
+                    sftp.close()
+                    
+                    apply_cmd = f"git apply {remote_patch_tmp} && rm {remote_patch_tmp}"
+                    success, _ = self._run_ssh_command(apply_cmd)
+                    ssh.close()
+                except Exception as e:
+                    self._update_status(f"SSH Patch transfer failed: {e}")
+                    ssh.close()
+                    return False
+            else:
+                # Local: Apply directly
+                success, _ = self.run_command(f"git apply {target_patch_path}", cwd=cwd)
+            
+            if not success:
+                self._update_status(f"Error: Failed to apply patch {patch_val}")
+                self.current_patch_id = None
+                return False
+
+        self.current_patch_id = target_patch_path
+        return True
+
     def run_pipeline(self, feature):
         """
         Coordinates the full build-measure pipeline for a single feature.
@@ -566,10 +693,18 @@ class ChromiumPipeline:
         if not self.use_ssh and not os.path.exists(self.local_chromium_path):
             raise FileNotFoundError(f"Chromium path not found: {self.local_chromium_path}")
         
+        # Patch Management
+        patch_val = feature.get('patch')
+        if not self._manage_patches(patch_val):
+            self._update_status(f"Task {feature['id']}: Patching Failed. Skipping task.")
+            return None
+
         self._update_status(f"Task {feature['id']}: Starting Build")
         build_success, build_time = self.build_chromium(feature.get('build_flags', []))
         if not build_success: 
             self._update_status(f"Task {feature['id']}: Build Failed")
+            # Clear state on build failure to be safe
+            self.current_patch_id = None
             return None
 
         repeats = self.settings.get('default_repeats', 5)
@@ -586,6 +721,7 @@ class ChromiumPipeline:
             "build_time": build_time,
             "build_flags": feature.get('build_flags', []),
             "runtime_flags": feature.get('runtime_flags', []),
+            "patch": patch_val,
             "memory_results": memory_results,
             "timestamp": time.time()
         }

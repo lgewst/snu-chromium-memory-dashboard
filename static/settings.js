@@ -1,15 +1,27 @@
+/**
+ * @file settings.js
+ * @description Manages the application settings UI. Handles loading, editing, 
+ *              and persisting configuration for both local and remote (SSH) execution.
+ *              Includes a directory browser for path selection.
+ */
+
 document.addEventListener('DOMContentLoaded', () => {
     const settingsForm = document.getElementById('settingsForm');
     const useSshCheckbox = document.getElementById('use_ssh');
     const sshSection = document.getElementById('sshSection');
     const saveStatus = document.getElementById('saveStatus');
 
-    // Toggle SSH section visibility
+    /**
+     * Toggles SSH configuration section visibility based on the checkbox state.
+     */
     useSshCheckbox.addEventListener('change', () => {
         sshSection.style.display = useSshCheckbox.checked ? 'block' : 'none';
     });
 
-    // Load current settings
+    /**
+     * Loads the current application settings from the backend API.
+     * Populates all form fields and initializes visibility of conditional sections.
+     */
     fetch('/api/settings')
         .then(res => res.json())
         .then(data => {
@@ -24,10 +36,10 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('evaluation_seconds').value = data.evaluation_seconds || 20;
             document.getElementById('measurement_interval').value = data.measurement_interval || 1.0;
 
-            // Trigger visibility
+            // Trigger conditional section visibility
             sshSection.style.display = data.use_ssh ? 'block' : 'none';
 
-            // Fill SSH config
+            // Fill SSH specific configuration
             if (data.ssh_config) {
                 document.getElementById('ssh_host').value = data.ssh_config.host || '';
                 document.getElementById('ssh_port').value = data.ssh_config.port || 22;
@@ -42,15 +54,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveButton = document.querySelector('#settingsForm button[type="submit"]');
     let isDirty = false;
 
+    /**
+     * Updates the "dirty" state of the form. Enables/disables the save button
+     * based on whether changes have been made.
+     * @param {boolean} dirty - Whether the form has unsaved changes.
+     */
     const setDirty = (dirty) => {
         isDirty = dirty;
         saveButton.disabled = !dirty;
     };
 
-    // Initially disabled
+    // Initially disabled until user input is detected
     saveButton.disabled = true;
 
-    // Track changes
+    // Track input changes to set dirty state
     settingsForm.addEventListener('input', () => {
         setDirty(true);
     });
@@ -60,7 +77,9 @@ document.addEventListener('DOMContentLoaded', () => {
         setDirty(true);
     });
 
-    // Handle Ctrl + S shortcut
+    /**
+     * Global keyboard shortcuts (e.g., Ctrl+S to save).
+     */
     document.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
             e.preventDefault();
@@ -70,7 +89,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Warning before leaving
+    /**
+     * Displays a browser warning if the user attempts to navigate away with unsaved changes.
+     */
     window.addEventListener('beforeunload', (e) => {
         if (isDirty) {
             e.preventDefault();
@@ -78,7 +99,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Save settings
+    /**
+     * Handles form submission. Collects data from the form and sends it to the server.
+     * Updates the UI to show save status success/failure.
+     */
     settingsForm.addEventListener('submit', (e) => {
         e.preventDefault();
         saveStatus.textContent = 'Saving...';
@@ -124,7 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // File Browser Logic
+    // --- File Browser Modal Logic ---
     const modal = document.getElementById('fileBrowserModal');
     const closeBtn = document.querySelector('.close-modal');
     const fileList = document.getElementById('fileList');
@@ -133,6 +157,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentTargetInputId = '';
     let currentBrowsingPath = '';
 
+    /**
+     * Binds click events to browse buttons to open the directory browser modal.
+     */
     document.querySelectorAll('.browse-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             currentTargetInputId = btn.getAttribute('data-target');
@@ -141,14 +168,26 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    /**
+     * Modal closing handlers (X button and background click).
+     */
     closeBtn.onclick = () => modal.style.display = 'none';
     window.onclick = (e) => { if (e.target == modal) modal.style.display = 'none'; };
 
+    /**
+     * Opens the directory browser modal.
+     * @param {string} path - The starting path to browse.
+     */
     function openBrowser(path) {
         modal.style.display = 'block';
         fetchItems(path);
     }
 
+    /**
+     * Fetches directory items from the backend for the given path.
+     * Updates the modal UI with files/folders.
+     * @param {string} path - The filesystem path to fetch contents from.
+     */
     function fetchItems(path) {
         fetch(`/api/browse?path=${encodeURIComponent(path)}`)
             .then(res => res.json())
@@ -157,6 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentPathDisplay.textContent = currentBrowsingPath;
                 fileList.innerHTML = '';
                 
+                // Note: Filtered to only show directories in this UI
                 data.items.forEach(item => {
                     const li = document.createElement('li');
                     li.innerHTML = `📁 ${item.name}`;
@@ -166,6 +206,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
+    /**
+     * Confirms selection of the currently browsed directory.
+     * Sets the value back to the originating input field.
+     */
     selectDirBtn.onclick = () => {
         document.getElementById(currentTargetInputId).value = currentBrowsingPath;
         setDirty(true);
