@@ -4,6 +4,7 @@ import subprocess
 import time
 import psutil
 import logging
+import threading
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import paramiko
@@ -773,6 +774,7 @@ class ChromiumPipeline:
         self._update_status(f"Task {feature['id']}: Completed")
         final_result = {
             "id": feature['id'],
+            "group_id": feature.get('group_id'),
             "build_time": build_time,
             "build_flags": feature.get('build_flags', []),
             "runtime_flags": feature.get('runtime_flags', []),

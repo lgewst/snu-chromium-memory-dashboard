@@ -135,6 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             row.innerHTML = `
                 <td>${res.id}</td>
+                <td>${res.group_id || '-'}</td>
                 <td>${res.build_time.toFixed(2)}</td>
                 <td>${medianPeak}</td>
                 <td>${res.build_flags.join(' ') || 'None'}</td>
