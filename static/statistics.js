@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let availableUrls = new Set();
     let availableGroups = new Set();
+    const NONE_GROUP = "__NONE__"; // Internal constant for tasks without a group
 
     /**
      * Initializes the statistics page.
@@ -46,7 +47,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Extract global uniques
             allResults.forEach(res => {
-                if (res.group_id) availableGroups.add(res.group_id);
+                if (res.group_id) {
+                    availableGroups.add(res.group_id);
+                } else {
+                    availableGroups.add(NONE_GROUP);
+                }
+                
                 if (res.memory_results && res.memory_results[0]) {
                     Object.keys(res.memory_results[0].urls).forEach(url => availableUrls.add(url));
                 }
@@ -54,20 +60,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Default selections
             availableUrls.forEach(url => selectedUrls.add(url));
+            availableGroups.forEach(group => selectedGroups.add(group));
             
             // Check for deep link
             const urlParams = new URLSearchParams(window.location.search);
             const targetTaskId = urlParams.get('task_id');
 
             if (targetTaskId) {
-                // If deep linked: select all groups/flags to ensure target task is visible,
-                // but only select the target task in Filter C.
-                availableGroups.forEach(group => selectedGroups.add(group));
                 renderFilterA();
                 renderGroupFilters();
-                updateFilterB(targetTaskId); // Pass target to specifically select it in C
+                updateFilterB(targetTaskId); 
             } else {
-                availableGroups.forEach(group => selectedGroups.add(group));
                 renderFilterA();
                 renderGroupFilters();
                 updateFilterB();
@@ -95,12 +98,30 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     const renderGroupFilters = () => {
         groupListContainer.innerHTML = '';
-        Array.from(availableGroups).sort().forEach(group => {
-            groupListContainer.appendChild(createCheckboxItem(group, selectedGroups.has(group), (checked) => {
-                checked ? selectedGroups.add(group) : selectedGroups.delete(group);
+        
+        // Handle "None" (No Group) first
+        if (availableGroups.has(NONE_GROUP)) {
+            const noneItem = createCheckboxItem("None", selectedGroups.has(NONE_GROUP), (checked) => {
+                checked ? selectedGroups.add(NONE_GROUP) : selectedGroups.delete(NONE_GROUP);
                 updateFilterB();
-            }));
-        });
+            });
+            noneItem.style.fontWeight = "bold";
+            noneItem.style.borderBottom = "1px solid #eee";
+            noneItem.style.marginBottom = "5px";
+            noneItem.style.paddingBottom = "5px";
+            groupListContainer.appendChild(noneItem);
+        }
+
+        // Other groups sorted
+        Array.from(availableGroups)
+            .filter(g => g !== NONE_GROUP)
+            .sort()
+            .forEach(group => {
+                groupListContainer.appendChild(createCheckboxItem(group, selectedGroups.has(group), (checked) => {
+                    checked ? selectedGroups.add(group) : selectedGroups.delete(group);
+                    updateFilterB();
+                }));
+            });
     };
 
     /**
@@ -108,7 +129,10 @@ document.addEventListener('DOMContentLoaded', () => {
      * Cascades from Group Filter. Resets to unchecked.
      */
     const updateFilterB = (targetTaskId = null) => {
-        const groupFiltered = allResults.filter(res => !res.group_id || selectedGroups.has(res.group_id));
+        const groupFiltered = allResults.filter(res => {
+            const g = res.group_id || NONE_GROUP;
+            return selectedGroups.has(g);
+        });
         
         const bBuildFlags = new Set();
         const bRuntimeFlags = new Set();
@@ -137,8 +161,9 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     const updateFilterC = (targetTaskId = null) => {
         const bFiltered = allResults.filter(res => {
-            const groupMatch = !res.group_id || selectedGroups.has(res.group_id);
-            if (!groupMatch) return false;
+            const g = res.group_id || NONE_GROUP;
+            if (!selectedGroups.has(g)) return false;
+
             const buildMatch = selectedBuildFlags.size === 0 || res.build_flags.some(f => selectedBuildFlags.has(f));
             const runtimeMatch = selectedRuntimeFlags.size === 0 || res.runtime_flags.some(f => selectedRuntimeFlags.has(f));
             const patchMatch = selectedPatches.size === 0 || (res.patch && selectedPatches.has(res.patch));
@@ -149,7 +174,6 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedTaskIds.clear();
 
         bFiltered.forEach(res => {
-            // If targetTaskId provided, only check that one. Otherwise check all.
             const isSelected = targetTaskId ? (res.id === targetTaskId) : true;
             if (isSelected) selectedTaskIds.add(res.id);
 
@@ -191,14 +215,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderSingleTaskMode = (res) => {
         iterationFilterSection.style.display = 'block';
         
-        // Initialize iteration selections if needed
         const iterationCount = res.memory_results.length;
         if (selectedIterations.size === 0 || Array.from(selectedIterations).some(i => i > iterationCount)) {
             selectedIterations.clear();
             for (let i = 1; i <= iterationCount; i++) selectedIterations.add(i);
         }
 
-        // Render iteration filters
         iterationListContainer.innerHTML = '';
         for (let i = 1; i <= iterationCount; i++) {
             iterationListContainer.appendChild(createCheckboxItem(`Iteration ${i}`, selectedIterations.has(i), (checked) => {
@@ -224,7 +246,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // Highlight the best iteration
         let minPeak = Infinity, minIdx = -1;
         datasets.forEach((ds, idx) => {
             const iterNum = parseInt(ds.label.split(' ')[1]);
@@ -250,11 +271,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
-     * Multi Task Mode: Shows median of 1st Iteration for each Task ID
+     * Multi Task Mode
      */
     const renderMultiTaskMode = (results) => {
         iterationFilterSection.style.display = 'none';
-        selectedIterations.clear(); // Reset
+        selectedIterations.clear(); 
 
         const datasets = results.map((res, idx) => {
             return {
@@ -313,9 +334,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return pts;
     };
 
-    /**
-     * Points for 1st iteration (same as calculateIterationPoints basically)
-     */
     const calculateAvgPoints = (iter) => calculateIterationPoints(iter);
 
     const drawChart = (datasets, title) => {
@@ -339,9 +357,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    /**
-     * Generic sub-filter renderer
-     */
     const renderSubFilter = (container, itemsSet, selectedSet, callback) => {
         container.innerHTML = '';
         Array.from(itemsSet).sort().forEach(val => {
@@ -372,11 +387,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Bulk actions
     const setupBulk = (btnId, containerId, select) => {
-        document.getElementById(btnId).onclick = () => {
-            document.getElementById(containerId).querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                if (cb.checked !== select) { cb.checked = select; cb.dispatchEvent(new Event('change')); }
-            });
-        };
+        const btn = document.getElementById(btnId);
+        if (btn) {
+            btn.onclick = () => {
+                document.getElementById(containerId).querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    if (cb.checked !== select) { cb.checked = select; cb.dispatchEvent(new Event('change')); }
+                });
+            };
+        }
     };
 
     setupBulk('selectAllUrls', 'urlList', true);
@@ -388,20 +406,32 @@ document.addEventListener('DOMContentLoaded', () => {
     setupBulk('selectAllTasks', 'taskList', true);
     setupBulk('deselectAllTasks', 'taskList', false);
 
-    document.getElementById('selectAllB').onclick = () => {
-        ['buildFlagList', 'runtimeFlagList', 'patchList'].forEach(id => {
-            document.getElementById(id).querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+    const selectB = document.getElementById('selectAllB');
+    if (selectB) {
+        selectB.onclick = () => {
+            ['buildFlagList', 'runtimeFlagList', 'patchList'].forEach(id => {
+                const container = document.getElementById(id);
+                if (container) {
+                    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                        if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+                    });
+                }
             });
-        });
-    };
-    document.getElementById('deselectAllB').onclick = () => {
-        ['buildFlagList', 'runtimeFlagList', 'patchList'].forEach(id => {
-            document.getElementById(id).querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                if (cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
+        };
+    }
+    const deselectB = document.getElementById('deselectAllB');
+    if (deselectB) {
+        deselectB.onclick = () => {
+            ['buildFlagList', 'runtimeFlagList', 'patchList'].forEach(id => {
+                const container = document.getElementById(id);
+                if (container) {
+                    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                        if (cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
+                    });
+                }
             });
-        });
-    };
+        };
+    }
 
     init();
 });

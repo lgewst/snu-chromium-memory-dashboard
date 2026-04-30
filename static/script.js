@@ -138,8 +138,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${res.group_id || '-'}</td>
                 <td>${res.build_time.toFixed(2)}</td>
                 <td>${medianPeak}</td>
-                <td>${res.build_flags.join(' ') || 'None'}</td>
-                <td>${res.runtime_flags.join(' ') || 'None'}</td>
+                <td>${res.build_flags.join(' ') || '-'}</td>
+                <td>${res.runtime_flags.join(' ') || '-'}</td>
                 <td>${new Date(res.timestamp * 1000).toLocaleString()}</td>
             `;
             resultsTableBody.appendChild(row);
@@ -200,6 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 animation: true,
                 onClick: (event, elements) => {
                     if (elements.length > 0) {

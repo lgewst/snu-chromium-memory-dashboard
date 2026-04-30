@@ -29,10 +29,10 @@
                         <span class="menu-text">Dashboard</span>
                     </a>
                 </li>
-                <li class="disabled">
-                    <a>
+                <li>
+                    <a href="/details" class="{% if request.path == '/details' %}active{% endif %}">
                         <span class="menu-icon">🔍</span>
-                        <span class="menu-text">Details (TBD)</span>
+                        <span class="menu-text">Details</span>
                     </a>
                 </li>
                 <li>

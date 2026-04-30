@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block head %}
+<style>
+    .details-container {
+        display: flex;
+        gap: 20px;
+        height: calc(100vh - 120px);
+        min-height: 600px;
+    }
+    
+    /* Navigation Sidebar */
+    .details-nav {
+        width: 300px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        flex-shrink: 0;
+    }
+    
+    .nav-header {
+        margin-bottom: 5px;
+    }
+    
+    .search-box {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-bottom: 10px;
+    }
+    
+    .tree-container {
+        flex-grow: 1;
+        overflow-y: auto;
+        border: 1px solid #eee;
+        border-radius: 4px;
+        background: #fff;
+    }
+    
+    /* Tree Styling */
+    .tree-item {
+        padding: 6px 10px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid #f9f9f9;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .tree-item:hover {
+        background-color: #f0f7ff;
+    }
+    
+    .tree-item.active {
+        background-color: var(--primary-color);
+        color: white;
+    }
+    
+    .tree-item.level-0 { font-weight: bold; }
+    .tree-item.level-1 { padding-left: 25px; font-style: italic; color: #666; }
+    .tree-item.level-2 { padding-left: 45px; font-size: 0.85rem; color: #888; }
+    .tree-item.active.level-1, .tree-item.active.level-2 { color: white; }
+
+    /* Content Area */
+    .details-content {
+        flex-grow: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        min-width: 0;
+    }
+    
+    .data-view-card {
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .view-header {
+        padding: 15px 25px;
+        border-bottom: 1px solid #eee;
+        background: #fafafa;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .view-body {
+        padding: 20px;
+    }
+    
+    .info-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    
+    .info-item {
+        background: #f8f9fa;
+        padding: 10px;
+        border-radius: 4px;
+        border-left: 3px solid #ddd;
+    }
+    
+    .info-label {
+        display: block;
+        font-size: 0.75rem;
+        color: #777;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+    
+    .info-value {
+        font-weight: 600;
+        font-family: monospace;
+    }
+    
+    /* Samples Table */
+    .samples-table-container {
+        overflow-x: auto;
+    }
+    
+    .samples-table {
+        width: 100%;
+        font-size: 0.85rem;
+        border-collapse: collapse;
+    }
+    
+    .samples-table th {
+        position: sticky;
+        top: 0;
+        background: #f2f2f2;
+        z-index: 10;
+        white-space: nowrap;
+    }
+    
+    .samples-table td, .samples-table th {
+        padding: 8px 12px;
+        text-align: right;
+        border: 1px solid #eee;
+    }
+    
+    .samples-table td:first-child, .samples-table th:first-child {
+        text-align: left;
+    }
+    
+    /* Raw View */
+    .raw-json {
+        background: #2d2d2d;
+        color: #ccc;
+        padding: 15px;
+        border-radius: 4px;
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+
+    .status-msg {
+        text-align: center;
+        padding: 50px;
+        color: #999;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Detailed Measurement Results</h1>
+</div>
+
+<div class="details-container">
+    <!-- Navigation Sidebar -->
+    <div class="details-nav">
+        <div class="nav-header">
+            <input type="text" id="treeSearch" class="search-box" placeholder="Search Task ID...">
+        </div>
+        <div class="tree-container card" id="treeContainer">
+            <div class="status-msg">Loading data tree...</div>
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="details-content" id="detailsContent">
+        <div class="card" style="height: 100%; display: flex; align-items: center; justify-content: center; color: #999;">
+            <div style="text-align: center;">
+                <span style="font-size: 3rem;">📂</span>
+                <p>Select a task, iteration, or URL from the left panel to view detailed metrics.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='details.js') }}"></script>
+{% endblock %}

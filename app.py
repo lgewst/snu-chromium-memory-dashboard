@@ -9,6 +9,7 @@ from flask import Flask, jsonify, send_from_directory, request, render_template
 from pipeline import ChromiumPipeline
 
 app = Flask(__name__)
+app.json.sort_keys = False # Preserve original key order from the file
 app.shared_state = None
 app.pipeline_process = None
 
@@ -205,6 +206,16 @@ def statistics_page():
     """
     return render_template('statistics.html')
 
+@app.route('/details')
+def details_page():
+    """
+    Serves the detailed data view page.
+    
+    Returns:
+        str: Rendered details.html template.
+    """
+    return render_template('details.html')
+
 @app.route('/api/features', methods=['GET'])
 def get_features():
     """
@@ -221,11 +232,33 @@ def get_features():
 
 @app.route('/api/features', methods=['POST'])
 def save_features():
-    """Updates the entire memory_features.json file."""
+    """Updates the entire memory_features.json file and syncs group_id to results."""
     try:
         features = request.json
         with open('memory_features.json', 'w') as f:
             json.dump(features, f, indent=2)
+        
+        # Sync group_id to test_results.json if it exists
+        if os.path.exists('test_results.json'):
+            with open('test_results.json', 'r') as f:
+                results = json.load(f)
+            
+            # Create a mapping of id -> group_id from the new features list
+            group_mapping = {str(feat['id']): feat.get('group_id') for feat in features}
+            
+            updated = False
+            for res in results:
+                res_id = str(res['id'])
+                if res_id in group_mapping:
+                    new_group = group_mapping[res_id]
+                    if res.get('group_id') != new_group:
+                        res['group_id'] = new_group
+                        updated = True
+            
+            if updated:
+                with open('test_results.json', 'w') as f:
+                    json.dump(results, f, indent=2)
+                    
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500

@@ -9,6 +9,7 @@ let completedIds = new Set();
 let availablePatches = [];
 let currentPatchDir = '';
 let editingId = null;
+let editingGroupOnly = false; // Track if we are only editing the group ID for completed tasks
 
 // Pagination state
 let currentPage = 1;
@@ -234,26 +235,51 @@ function createRow(f, absIdx) {
 
     if (isEditing) {
         tr.classList.add('editing-row');
-        tr.innerHTML = `
-            <td><strong>${f.id}</strong></td>
-            <td><input type="text" id="editG" value="${f.group_id || ''}" class="edit-input" placeholder="Group"></td>
-            <td><input type="text" id="editBT" value="${(f.build_flags || []).join(' ')}" class="edit-input"></td>
-            <td><input type="text" id="editRT" value="${(f.runtime_flags || []).join(' ')}" class="edit-input"></td>
-            <td><input type="text" id="editP" value="${f.patch || ''}" class="edit-input"></td>
-            <td>-</td>
-            <td>
-                <div class="btn-group">
-                    <button class="btn btn-success btn-sm" id="confEdit">Confirm</button>
-                    <button class="btn btn-secondary btn-sm" id="cancEdit">Cancel</button>
-                </div>
-            </td>
-        `;
+        if (editingGroupOnly) {
+            // Limited edit mode for completed tasks (only Group ID)
+            const bt = (f.build_flags || []).join(' ') || '-';
+            const rt = (f.runtime_flags || []).join(' ') || '-';
+            tr.innerHTML = `
+                <td><strong>${f.id}</strong></td>
+                <td><input type="text" id="editG" value="${f.group_id || ''}" class="edit-input" placeholder="Group" autofocus></td>
+                <td><small title="${bt}">${bt}</small></td>
+                <td><small title="${rt}">${rt}</small></td>
+                <td><code title="${f.patch || ''}">${pDisp}</code></td>
+                <td><span class="badge badge-success">Completed</span></td>
+                <td>
+                    <div class="btn-group">
+                        <button class="btn btn-success btn-sm" id="confEdit">Confirm</button>
+                        <button class="btn btn-secondary btn-sm" id="cancEdit">Cancel</button>
+                    </div>
+                </td>
+            `;
+        } else {
+            // Full edit mode for pending tasks
+            tr.innerHTML = `
+                <td><strong>${f.id}</strong></td>
+                <td><input type="text" id="editG" value="${f.group_id || ''}" class="edit-input" placeholder="Group"></td>
+                <td><input type="text" id="editBT" value="${(f.build_flags || []).join(' ')}" class="edit-input"></td>
+                <td><input type="text" id="editRT" value="${(f.runtime_flags || []).join(' ')}" class="edit-input"></td>
+                <td><input type="text" id="editP" value="${f.patch || ''}" class="edit-input"></td>
+                <td>-</td>
+                <td>
+                    <div class="btn-group">
+                        <button class="btn btn-success btn-sm" id="confEdit">Confirm</button>
+                        <button class="btn btn-secondary btn-sm" id="cancEdit">Cancel</button>
+                    </div>
+                </td>
+            `;
+        }
         tr.querySelector('#confEdit').onclick = () => confirmEdit(f.id);
-        tr.querySelector('#cancEdit').onclick = () => { editingId = null; renderTable(); };
+        tr.querySelector('#cancEdit').onclick = () => { editingId = null; editingGroupOnly = false; renderTable(); };
     } else {
         const status = isDone ? '<span class="badge badge-success">Completed</span>' : '<span class="badge badge-pending">Pending</span>';
         const bt = (f.build_flags || []).join(' ') || '-';
         const rt = (f.runtime_flags || []).join(' ') || '-';
+        
+        // Use different labels for completed vs pending tasks
+        const modifyLabel = isDone ? 'Edit Group' : 'Modify';
+        
         tr.innerHTML = `
             <td><strong>${f.id}</strong></td>
             <td><small>${gDisp}</small></td>
@@ -263,12 +289,16 @@ function createRow(f, absIdx) {
             <td>${status}</td>
             <td>
                 <div class="btn-group">
-                    <button class="btn btn-secondary btn-sm" id="modBtn" ${isDone ? 'disabled' : ''}>Modify</button>
+                    <button class="btn btn-secondary btn-sm" id="modBtn">${modifyLabel}</button>
                     <button class="btn btn-danger btn-sm" id="delBtn">Delete</button>
                 </div>
             </td>
         `;
-        tr.querySelector('#modBtn').onclick = () => { editingId = f.id; renderTable(); };
+        tr.querySelector('#modBtn').onclick = () => { 
+            editingId = f.id; 
+            editingGroupOnly = isDone; 
+            renderTable(); 
+        };
         tr.querySelector('#delBtn').onclick = () => deleteFeature(f.id);
     }
     return tr;
@@ -421,11 +451,23 @@ function generateCombinations(fBT, fRT, gId) {
 async function confirmEdit(id) {
     const f = allFeatures.find(x => x.id === id);
     if (!f) return;
+    
+    // Always update group ID
     f.group_id = document.getElementById('editG').value.trim() || null;
-    f.build_flags = document.getElementById('editBT').value.trim().split(/\s+/).filter(x => x);
-    f.runtime_flags = document.getElementById('editRT').value.trim().split(/\s+/).filter(x => x);
-    f.patch = document.getElementById('editP').value.trim() || null;
+    
+    // Update other fields only if not in "group only" mode
+    if (!editingGroupOnly) {
+        const btInput = document.getElementById('editBT');
+        const rtInput = document.getElementById('editRT');
+        const pInput = document.getElementById('editP');
+        
+        if (btInput) f.build_flags = btInput.value.trim().split(/\s+/).filter(x => x);
+        if (rtInput) f.runtime_flags = rtInput.value.trim().split(/\s+/).filter(x => x);
+        if (pInput) f.patch = pInput.value.trim() || null;
+    }
+    
     editingId = null;
+    editingGroupOnly = false;
     await saveAllFeatures();
     renderTable();
 }
