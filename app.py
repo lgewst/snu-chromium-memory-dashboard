@@ -293,6 +293,39 @@ def list_patches():
             
     return jsonify({"patch_dir": patch_dir, "patches": sorted(patches, key=lambda x: x['name'])})
 
+@app.route('/api/target_urls', methods=['GET'])
+def get_target_urls():
+    """
+    API endpoint to fetch the list of target URLs for measurement.
+    
+    Returns:
+        Response: JSON list of URLs.
+    """
+    if os.path.exists('target_urls.json'):
+        with open('target_urls.json', 'r') as f:
+            try: return jsonify(json.load(f))
+            except: return jsonify([])
+    return jsonify([])
+
+@app.route('/api/target_urls', methods=['POST'])
+def save_target_urls():
+    """
+    API endpoint to update target_urls.json with a new list of URLs.
+    
+    Returns:
+        Response: JSON status (success/error).
+    """
+    try:
+        urls = request.json
+        if not isinstance(urls, list):
+            return jsonify({"status": "error", "message": "Expected a list of URLs"}), 400
+            
+        with open('target_urls.json', 'w') as f:
+            json.dump(urls, f, indent=2)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route('/api/settings', methods=['GET'])
 def get_settings():
     """

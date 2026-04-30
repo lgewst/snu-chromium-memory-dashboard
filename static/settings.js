@@ -22,44 +22,56 @@ document.addEventListener('DOMContentLoaded', () => {
      * Loads the current application settings from the backend API.
      * Populates all form fields and initializes visibility of conditional sections.
      */
-    fetch('/api/settings')
-        .then(res => res.json())
-        .then(data => {
-            // Fill basic settings
-            document.getElementById('local_chromium_path').value = data.local_chromium_path || '';
-            document.getElementById('build_path').value = data.build_path || '';
-            document.getElementById('depot_tools_path').value = data.depot_tools_path || '';
-            document.getElementById('headless').checked = !!data.headless;
-            document.getElementById('use_ssh').checked = !!data.use_ssh;
-            document.getElementById('default_repeats').value = data.default_repeats || 5;
-            document.getElementById('stabilization_seconds').value = data.stabilization_seconds || 20;
-            document.getElementById('evaluation_seconds').value = data.evaluation_seconds || 20;
-            document.getElementById('measurement_interval').value = data.measurement_interval || 1.0;
-            
-            // Pre-fill Autoninja Jobs (-j) - handle 0 correctly
-            const autoninjaJInput = document.getElementById('autoninja_j');
-            if (autoninjaJInput) {
-                if (data.autoninja_j !== undefined && data.autoninja_j !== null) {
-                    autoninjaJInput.value = data.autoninja_j;
-                } else {
-                    autoninjaJInput.value = '';
+    const loadSettings = () => {
+        fetch('/api/settings')
+            .then(res => res.json())
+            .then(data => {
+                // Fill basic settings
+                document.getElementById('local_chromium_path').value = data.local_chromium_path || '';
+                document.getElementById('build_path').value = data.build_path || '';
+                document.getElementById('depot_tools_path').value = data.depot_tools_path || '';
+                document.getElementById('headless').checked = !!data.headless;
+                document.getElementById('use_ssh').checked = !!data.use_ssh;
+                document.getElementById('default_repeats').value = data.default_repeats || 5;
+                document.getElementById('stabilization_seconds').value = data.stabilization_seconds || 20;
+                document.getElementById('evaluation_seconds').value = data.evaluation_seconds || 20;
+                document.getElementById('measurement_interval').value = data.measurement_interval || 1.0;
+                
+                // Pre-fill Autoninja Jobs (-j) - handle 0 correctly
+                const autoninjaJInput = document.getElementById('autoninja_j');
+                if (autoninjaJInput) {
+                    if (data.autoninja_j !== undefined && data.autoninja_j !== null) {
+                        autoninjaJInput.value = data.autoninja_j;
+                    } else {
+                        autoninjaJInput.value = '';
+                    }
                 }
-            }
 
-            // Trigger conditional section visibility
-            sshSection.style.display = data.use_ssh ? 'block' : 'none';
+                // Trigger conditional section visibility
+                sshSection.style.display = data.use_ssh ? 'block' : 'none';
 
-            // Fill SSH specific configuration
-            if (data.ssh_config) {
-                document.getElementById('ssh_host').value = data.ssh_config.host || '';
-                document.getElementById('ssh_port').value = data.ssh_config.port || 22;
-                document.getElementById('ssh_user').value = data.ssh_config.user || '';
-                document.getElementById('ssh_password').value = data.ssh_config.password || '';
-                document.getElementById('ssh_chromium_path').value = data.ssh_config.chromium_path || '';
-                document.getElementById('ssh_build_path').value = data.ssh_config.build_path || 'out/Default';
-                document.getElementById('ssh_depot_tools_path').value = data.ssh_config.depot_tools_path || '';
-            }
-        });
+                // Fill SSH specific configuration
+                if (data.ssh_config) {
+                    document.getElementById('ssh_host').value = data.ssh_config.host || '';
+                    document.getElementById('ssh_port').value = data.ssh_config.port || 22;
+                    document.getElementById('ssh_user').value = data.ssh_config.user || '';
+                    document.getElementById('ssh_password').value = data.ssh_config.password || '';
+                    document.getElementById('ssh_chromium_path').value = data.ssh_config.chromium_path || '';
+                    document.getElementById('ssh_build_path').value = data.ssh_config.build_path || 'out/Default';
+                    document.getElementById('ssh_depot_tools_path').value = data.ssh_config.depot_tools_path || '';
+                }
+            });
+
+        fetch('/api/target_urls')
+            .then(res => res.json())
+            .then(urls => {
+                if (Array.isArray(urls)) {
+                    document.getElementById('target_urls').value = urls.join('\n');
+                }
+            });
+    };
+
+    loadSettings();
 
     const saveButton = document.querySelector('#settingsForm button[type="submit"]');
     let isDirty = false;
@@ -118,6 +130,8 @@ document.addEventListener('DOMContentLoaded', () => {
         saveStatus.textContent = 'Saving...';
 
         const formData = new FormData(settingsForm);
+        
+        // Prepare settings data
         const settings = {
             local_chromium_path: formData.get('local_chromium_path'),
             build_path: formData.get('build_path'),
@@ -140,21 +154,45 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(settings)
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
+        // Prepare target URLs data
+        const urlsText = formData.get('target_urls') || '';
+        const urls = urlsText.split('\n')
+            .map(url => url.trim())
+            .filter(url => url.length > 0);
+
+        // Save both settings and target URLs
+        Promise.all([
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            }),
+            fetch('/api/target_urls', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(urls)
+            })
+        ])
+        .then(responses => Promise.all(responses.map(res => res.json())))
+        .then(dataList => {
+            const allSuccess = dataList.every(data => data.status === 'success');
+            if (allSuccess) {
                 saveStatus.textContent = 'Settings saved successfully!';
                 saveStatus.style.color = 'var(--success-color)';
                 setDirty(false);
             } else {
-                saveStatus.textContent = 'Error: ' + data.message;
+                const errors = dataList
+                    .filter(data => data.status !== 'success')
+                    .map(data => data.message)
+                    .join(', ');
+                saveStatus.textContent = 'Error: ' + errors;
                 saveStatus.style.color = 'var(--danger-color)';
             }
+            setTimeout(() => { saveStatus.textContent = ''; }, 3000);
+        })
+        .catch(err => {
+            saveStatus.textContent = 'Error: ' + err.message;
+            saveStatus.style.color = 'var(--danger-color)';
             setTimeout(() => { saveStatus.textContent = ''; }, 3000);
         });
     });

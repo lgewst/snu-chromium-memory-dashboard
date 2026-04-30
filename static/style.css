@@ -463,7 +463,8 @@ th, td {
 
 .form-group { margin-bottom: 20px; text-align: left; }
 .form-group label { display: block; margin-bottom: 8px; font-weight: 500; }
-.form-group input:not([type="checkbox"]) { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+.form-group input:not([type="checkbox"]), .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+.form-group textarea { resize: vertical; font-family: inherit; }
 
 .form-row { display: flex; gap: 20px; align-items: flex-start; }
 .form-row .form-group { flex: 1; }
