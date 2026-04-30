@@ -15,6 +15,40 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+class CDPMetricsCollector:
+    """
+    Asynchronously collects CDP performance metrics in a separate thread.
+    This prevents CDP latency from blocking the main memory measurement loop.
+    """
+    def __init__(self, driver):
+        self.driver = driver
+        self.last_metrics = {}
+        self.running = False
+        self.thread = None
+
+    def _collect_loop(self):
+        while self.running:
+            try:
+                cdp_metrics = self.driver.execute_cdp_cmd('Performance.getMetrics', {})
+                self.last_metrics = {m['name']: m['value'] for m in cdp_metrics['metrics']}
+            except:
+                # If CDP fails or driver is closed, we just keep the last known good metrics
+                pass
+            time.sleep(0.1) # Minimum interval between CDP polls
+
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self._collect_loop, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=1.0)
+
+    def get_latest(self):
+        return self.last_metrics
+
 class ChromiumPipeline:
     """
     Orchestrates the build and memory measurement process for Chromium.
@@ -301,7 +335,9 @@ class ChromiumPipeline:
         if not success: return False, 0
 
         self._update_status(f"Running autoninja for {build_path} (chrome + chromedriver)...")
-        return self.run_command(f"autoninja -C {build_path} chrome chromedriver", cwd=cwd)
+        j_val = self.settings.get('autoninja_j', 0)
+        j_flag = f" -j {j_val}" if j_val and j_val > 0 else ""
+        return self.run_command(f"autoninja -C {build_path}{j_flag} chrome chromedriver", cwd=cwd)
 
     def measure_memory(self, runtime_flags, repeats=5):
         """
@@ -321,34 +357,28 @@ class ChromiumPipeline:
 
     def _measure_memory_local(self, runtime_flags, repeats):
         """
-        Orchestrates high-frequency Selenium measurements locally using polling and CDP.
+        Executes high-frequency memory measurements locally using Selenium and 
+        Asynchronous CDP collection, matching the protocol in remote_agent.py.
         
-        Follows a robust two-phase measurement protocol:
-        1. Phase 1 (Stabilization): Measures for X seconds (default 20s). 
-           Uses a 'skip-behind' strategy: if a measurement (CDP call) takes too long, 
-           it skips the next scheduled points to avoid bursting and reduce CPU load 
-           during heavy page initialization.
-        2. Phase 2 (Evaluation): Measures for Y points (default 20). 
-           Uses a 'catch-up' strategy: ensures exactly Y points are collected even 
-           if some measurements are delayed, providing a consistent dataset for peak analysis.
-
+        This implementation restarts the browser for every URL to ensure isolation and 
+        uses a dedicated thread for CDP metrics to keep the measurement loop precise.
+        
         Args:
             runtime_flags (list): List of Chrome command-line arguments.
             repeats (int): Number of measurement iterations per URL.
 
         Returns:
-            list: A list of iteration results, where each contains 'peak' (max RSS of Phase 2),
-                  'samples' (all data points), and phase counts.
+            list: A list of iteration results containing peak, samples, and metadata.
         """
-        self._update_status(f"Measuring memory locally (Repeats: {repeats})...")
+        self._update_status(f"Measuring memory locally (URL Isolation, Async CDP): {repeats} repeats")
         results = []
         build_path = self.settings.get('build_path', 'out/Default')
         chrome_exe = os.path.join(self.local_chromium_path, build_path, "chrome")
+        chromedriver_exe = os.path.join(self.local_chromium_path, build_path, "chromedriver")
         stabilization_sec = float(self.settings.get('stabilization_seconds', 20))
         evaluation_sec = float(self.settings.get('evaluation_seconds', 20))
         interval = float(self.settings.get('measurement_interval', 1.0))
         
-        # Collect device metadata
         import platform
         device_info = {
             "os": platform.system(),
@@ -360,102 +390,118 @@ class ChromiumPipeline:
 
         for i in range(repeats):
             iteration_result = {"iteration": i + 1, "urls": {}, "metadata": device_info}
-            options = Options()
-            options.binary_location = chrome_exe
-            if self.settings.get('headless', True): options.add_argument("--headless=new")
-            for flag in runtime_flags: options.add_argument(flag)
             
-            try:
-                driver = webdriver.Chrome(options=options)
-                # Enable CDP Performance Domain
-                driver.execute_cdp_cmd('Performance.enable', {})
+            for url in self.target_urls:
+                self._update_status(f"Iter {i+1}/{repeats}: {url}")
                 
-                for url in self.target_urls:
-                    self._update_status(f"Local Measure Iter {i+1}/{repeats}: {url}")
+                # Setup fresh driver for each URL
+                opts = Options()
+                opts.binary_location = chrome_exe
+                if self.settings.get('headless', True):
+                    opts.add_argument("--headless=new")
+                opts.add_argument("--no-sandbox")
+                opts.add_argument("--disable-dev-shm-usage")
+                for f in runtime_flags:
+                    opts.add_argument(f)
+                
+                try:
+                    from selenium.webdriver.chrome.service import Service
+                    svc = Service(executable_path=chromedriver_exe)
+                    driver = webdriver.Chrome(service=svc, options=opts)
+                    driver.execute_cdp_cmd('Performance.enable', {})
+                    
+                    collector = CDPMetricsCollector(driver)
+                    collector.start()
+                    
                     driver.get(url)
                     
                     all_samples = []
                     evaluation_rss = []
+                    evaluation_pss = []
                     
                     start_time = time.time()
                     
-                    # --- Phase 1: Stabilization (Skip-behind to avoid bursting) ---
-                    current_target = start_time
-                    while time.time() - start_time <= stabilization_sec and current_target - start_time <= stabilization_sec:
-                        wait = current_target - time.time()
-                        
-                        if wait < -interval/2:
-                            # Behind schedule: Adjust target to current time to prevent bursts
-                            current_target = time.time()
-                        elif wait > 0:
-                            time.sleep(wait)
-                        
-                        current_target += interval
-                        actual_elapsed = round(time.time() - start_time, 2)
-                        
-                        # Measure
-                        rss_bytes = self._get_total_memory(driver.service.process.pid)
-                        if rss_bytes > 0:
-                            sample = self._capture_sample(driver, rss_bytes / (1024 * 1024), actual_elapsed)
-                            all_samples.append(sample)
-                    
-                    phase1_final_count = len(all_samples)
-                    
-                    # --- Phase 2: Evaluation (Catch-up to ensure fixed count) ---
-                    phase2_expected = int(evaluation_sec / interval)
-                    # Align Phase 2 timeline strictly with the initial start_time
-                    phase2_base_time = start_time + stabilization_sec
-                    for j in range(phase2_expected):
-                        # Targets: start + stabilization + 1s, 2s, ..., 20s
-                        current_target = phase2_base_time + ((j + 1) * interval)
+                    # --- Phase 1: Stabilization ---
+                    phase1_expected = int(stabilization_sec / interval) + 1
+                    for j in range(phase1_expected):
+                        current_target = start_time + (j * interval)
                         wait = current_target - time.time()
                         if wait > 0:
                             time.sleep(wait)
                         
                         actual_elapsed = round(time.time() - start_time, 2)
-                        rss_bytes = self._get_total_memory(driver.service.process.pid)
-                        if rss_bytes > 0:
-                            rss_mb = rss_bytes / (1024 * 1024)
-                            sample = self._capture_sample(driver, rss_mb, actual_elapsed)
+                        rss_mb, pss_mb = self._get_mem(driver.service.process.pid)
+                        if rss_mb > 0:
+                            cdp_data = collector.get_latest()
+                            sample = self._capture_sample(rss_mb, pss_mb, actual_elapsed, cdp_data)
+                            all_samples.append(sample)
+                    
+                    phase1_final_count = len(all_samples)
+
+                    # --- Phase 2: Evaluation ---
+                    phase2_expected = int(evaluation_sec / interval)
+                    phase2_start_target = start_time + stabilization_sec + interval
+                    for j in range(phase2_expected):
+                        current_target = phase2_start_target + (j * interval)
+                        wait = current_target - time.time()
+                        if wait > 0:
+                            time.sleep(wait)
+                        
+                        actual_elapsed = round(time.time() - start_time, 2)
+                        rss_mb, pss_mb = self._get_mem(driver.service.process.pid)
+                        if rss_mb > 0:
+                            cdp_data = collector.get_latest()
+                            sample = self._capture_sample(rss_mb, pss_mb, actual_elapsed, cdp_data)
                             all_samples.append(sample)
                             evaluation_rss.append(rss_mb)
+                            evaluation_pss.append(pss_mb)
                     
                     if all_samples:
                         peak_rss = max(evaluation_rss) if evaluation_rss else max([s['rss'] for s in all_samples])
+                        peak_pss = max(evaluation_pss) if evaluation_pss else max([s['pss'] for s in all_samples])
                         iteration_result["urls"][url] = {
                             "peak": peak_rss,
+                            "peak_pss": peak_pss,
                             "samples": all_samples,
                             "phase1_count": phase1_final_count,
                             "phase2_count": len(evaluation_rss)
                         }
-                driver.quit()
-            except Exception as e:
-                print(f"Driver Error: {e}")
-                if 'driver' in locals(): driver.quit()
+                    
+                    collector.stop()
+                    driver.quit()
+                    
+                except Exception as e:
+                    self._update_status(f"    Error during {url}: {e}")
+                    try: driver.quit()
+                    except: pass
+                
+                # Brief cool-down between URLs
+                time.sleep(1)
             
+            # Global cleanup between iterations
             os.system("pkill -f chrome || true")
+            os.system("pkill -f chromedriver || true")
 
             if iteration_result["urls"]:
                 results.append(iteration_result)
         return results
 
-    def _capture_sample(self, driver, rss_mb, actual_elapsed):
+    def _capture_sample(self, rss_mb, pss_mb, actual_elapsed, cdp_data=None):
         """
-        Captures a comprehensive snapshot of memory and performance metrics via CDP.
-        
-        Executes the 'Performance.getMetrics' command to retrieve internal browser 
-        metrics such as V8 JS Heap usage and execution durations for layout/scripts.
+        Creates a sample snapshot using system memory and provided CDP data.
 
         Args:
-            driver (webdriver.Chrome): The active Selenium driver instance.
             rss_mb (float): The total system-level RSS memory usage in Megabytes.
+            pss_mb (float): The total system-level PSS memory usage in Megabytes.
             actual_elapsed (float): The actual time in seconds since the page load started.
+            cdp_data (dict, optional): The latest metrics dictionary from CDP.
 
         Returns:
             dict: A sample dictionary containing:
                 - timestamp: Wall-clock time of capture.
                 - elapsed: Actual seconds since the page load began.
-                - rss: System-level memory usage (MB).
+                - rss: System-level RSS memory usage (MB).
+                - pss: System-level PSS memory usage (MB).
                 - js_heap_used: Memory used by the V8 JS engine (MB).
                 - js_heap_total: Total memory allocated for the V8 JS engine (MB).
                 - layout_duration: Cumulative time spent on layout operations (ms).
@@ -464,42 +510,51 @@ class ChromiumPipeline:
                 - nodes: Number of DOM nodes in the document.
                 - documents: Number of documents in the process tree.
         """
-        try:
-            cdp_metrics = driver.execute_cdp_cmd('Performance.getMetrics', {})
-            metrics_dict = {m['name']: m['value'] for m in cdp_metrics['metrics']}
-        except:
-            metrics_dict = {}
-
+        metrics = cdp_data if cdp_data else {}
         return {
             "timestamp": time.time(),
             "elapsed": actual_elapsed,
             "rss": rss_mb,
-            "js_heap_used": metrics_dict.get('JSHeapUsedSize', 0) / (1024 * 1024),
-            "js_heap_total": metrics_dict.get('JSHeapTotalSize', 0) / (1024 * 1024),
-            "layout_duration": metrics_dict.get('LayoutDuration', 0),
-            "task_duration": metrics_dict.get('TaskDuration', 0),
-            "script_duration": metrics_dict.get('ScriptDuration', 0),
-            "nodes": metrics_dict.get('Nodes', 0),
-            "documents": metrics_dict.get('Documents', 0)
+            "pss": pss_mb,
+            "js_heap_used": metrics.get('JSHeapUsedSize', 0) / (1024 * 1024),
+            "js_heap_total": metrics.get('JSHeapTotalSize', 0) / (1024 * 1024),
+            "layout_duration": metrics.get('LayoutDuration', 0),
+            "task_duration": metrics.get('TaskDuration', 0),
+            "script_duration": metrics.get('ScriptDuration', 0),
+            "nodes": metrics.get('Nodes', 0),
+            "documents": metrics.get('Documents', 0)
         }
 
-    def _get_total_memory(self, pid):
+    def _get_mem(self, pid):
         """
-        Recursively calculates the RSS memory usage of a process tree.
-
+        Calculates the total RSS and PSS memory usage of a process and all its recursive children.
+        
         Args:
-            pid (int): Parent process ID.
-
+            pid (int): The process ID of the parent process.
+            
         Returns:
-            int: Total memory usage in bytes.
+            tuple: (total_rss_mb, total_pss_mb) - Total memory usage in Megabytes (MB).
         """
+        total_rss = 0
+        total_pss = 0
         try:
             parent = psutil.Process(pid)
-            total = parent.memory_info().rss
+            # Get memory for parent
+            info = parent.memory_full_info()
+            total_rss += info.rss
+            total_pss += getattr(info, 'pss', info.rss) # Fallback to RSS if PSS not available
+            
+            # Get memory for all children
             for child in parent.children(recursive=True):
-                total += child.memory_info().rss
-            return total
-        except: return 0
+                try:
+                    c_info = child.memory_full_info()
+                    total_rss += c_info.rss
+                    total_pss += getattr(c_info, 'pss', c_info.rss)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            return total_rss / (1024 * 1024), total_pss / (1024 * 1024)
+        except:
+            return 0, 0
 
     def _measure_memory_remote(self, runtime_flags, repeats):
         """

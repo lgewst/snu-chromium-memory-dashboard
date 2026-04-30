@@ -4,6 +4,7 @@
 <div class="content-header task-header">
     <h1>Task Management</h1>
     <div class="header-actions">
+        <button id="cleanTasksBtn" class="btn btn-danger">- Clean</button>
         <button id="openSingleAddBtn" class="btn btn-primary">+ Single Add</button>
         <button id="openBulkAddBtn" class="btn btn-success">+ Bulk Add</button>
     </div>
@@ -15,9 +16,10 @@
             <thead>
                 <tr>
                     <th style="width: 60px;">ID</th>
+                    <th style="width: 100px;">Group</th>
                     <th style="width: 25%;">Build Flags</th>
                     <th style="width: 25%;">Runtime Flags</th>
-                    <th style="width: 30%;">Patch</th>
+                    <th style="width: 20%;">Patch</th>
                     <th style="width: 100px;">Status</th>
                     <th style="width: 140px;">Actions</th>
                 </tr>
@@ -45,6 +47,10 @@
         </div>
         <div class="overlay-body">
             <form id="addTaskForm" class="task-form-vertical">
+                <div class="form-group">
+                    <label for="groupId">Group ID (Optional)</label>
+                    <input type="text" id="groupId" placeholder="e.g., experimental-v1">
+                </div>
                 <div class="form-group">
                     <label for="buildFlags">Build Flags (GN Arguments)</label>
                     <input type="text" id="buildFlags" placeholder="e.g., is_debug=false">
@@ -81,6 +87,10 @@
         </div>
         <div class="overlay-body scrollable-body">
             <div class="bulk-form-vertical">
+                <div class="form-group">
+                    <label>0. Group ID (Optional, common to all)</label>
+                    <input type="text" id="bulkGroupId" placeholder="e.g., batch-run-01">
+                </div>
                 <div class="form-group">
                     <label>1. Fixed Build Flags (Common to all)</label>
                     <input type="text" id="fixedBuildFlags" placeholder="is_official_build=true">

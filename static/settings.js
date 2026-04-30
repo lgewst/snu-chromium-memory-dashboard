@@ -35,6 +35,16 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('stabilization_seconds').value = data.stabilization_seconds || 20;
             document.getElementById('evaluation_seconds').value = data.evaluation_seconds || 20;
             document.getElementById('measurement_interval').value = data.measurement_interval || 1.0;
+            
+            // Pre-fill Autoninja Jobs (-j) - handle 0 correctly
+            const autoninjaJInput = document.getElementById('autoninja_j');
+            if (autoninjaJInput) {
+                if (data.autoninja_j !== undefined && data.autoninja_j !== null) {
+                    autoninjaJInput.value = data.autoninja_j;
+                } else {
+                    autoninjaJInput.value = '';
+                }
+            }
 
             // Trigger conditional section visibility
             sshSection.style.display = data.use_ssh ? 'block' : 'none';
@@ -118,6 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
             stabilization_seconds: parseInt(formData.get('stabilization_seconds')),
             evaluation_seconds: parseInt(formData.get('evaluation_seconds')),
             measurement_interval: parseFloat(formData.get('measurement_interval')),
+            autoninja_j: formData.get('autoninja_j') ? parseInt(formData.get('autoninja_j')) : 0,
             ssh_config: {
                 host: formData.get('ssh_host'),
                 port: parseInt(formData.get('ssh_port')),

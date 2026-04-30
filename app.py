@@ -469,7 +469,7 @@ if __name__ == '__main__':
     except Exception as e:
         print(f" * Could not open browser automatically: {e}")
 
-    # vitals
+    # Vitals thread
     vitals_thread = threading.Thread(target=background_vitals_updater, daemon=True)
     vitals_thread.start()
     

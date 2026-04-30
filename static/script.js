@@ -115,19 +115,17 @@ document.addEventListener('DOMContentLoaded', () => {
         results.forEach(res => {
             const row = document.createElement('tr');
             
-            // For each iteration, get the peak memory for each URL.
-            // Then find the median of those peak values across all iterations.
+            // For each iteration, get the peak PSS memory for each URL.
+            // RSS is no longer used for display.
             const allIterationPeaks = [];
             res.memory_results.forEach(iter => {
                 if (iter.urls) {
                     Object.values(iter.urls).forEach(urlData => {
-                        // Priority: New 'peak' field, fallback to old 'all' array, then direct number
-                        if (urlData && urlData.peak !== undefined) {
-                            allIterationPeaks.push(urlData.peak);
-                        } else if (urlData && Array.isArray(urlData.all)) {
-                            allIterationPeaks.push(Math.max(...urlData.all));
-                        } else if (typeof urlData === 'number') {
-                            allIterationPeaks.push(urlData);
+                        // Use only peak_pss. If missing, show 0.
+                        if (urlData && urlData.peak_pss !== undefined) {
+                            allIterationPeaks.push(urlData.peak_pss);
+                        } else {
+                            allIterationPeaks.push(0);
                         }
                     });
                 }
@@ -149,7 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Updates the Chart.js visualization.
-     * Renders a bar chart showing median memory usage indexed by Feature ID.
+     * Renders a bar chart showing median PSS memory usage indexed by Feature ID.
      * @param {Object[]} results - Array of result objects from the backend.
      */
     const updateChart = (results) => {
@@ -159,12 +157,11 @@ document.addEventListener('DOMContentLoaded', () => {
             res.memory_results.forEach(iter => {
                 if (iter.urls) {
                     Object.values(iter.urls).forEach(urlData => {
-                        if (urlData && urlData.peak !== undefined) {
-                            allIterationPeaks.push(urlData.peak);
-                        } else if (urlData && Array.isArray(urlData.all)) {
-                            allIterationPeaks.push(Math.max(...urlData.all));
-                        } else if (typeof urlData === 'number') {
-                            allIterationPeaks.push(urlData);
+                        // Use only peak_pss. If missing, show 0.
+                        if (urlData && urlData.peak_pss !== undefined) {
+                            allIterationPeaks.push(urlData.peak_pss);
+                        } else {
+                            allIterationPeaks.push(0);
                         }
                     });
                 }
@@ -182,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
             data: {
                 labels: labels,
                 datasets: [{
-                    label: 'Average Memory Usage (MB)',
+                    label: 'Median Memory Usage (PSS, MB)',
                     data: dataPoints,
                     backgroundColor: 'rgba(54, 162, 235, 0.5)',
                     borderColor: 'rgba(54, 162, 235, 1)',
@@ -265,7 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let timerInterval = null;
     let isFetching = false;
 
-    // 1. 위젯 클릭 시 Toggle 및 갱신 주기 변경
+    // 1. Toggle widget and change refresh interval on click
     if (vitalsContainer) {
         vitalsContainer.addEventListener('click', (event) => {
             vitalsContainer.classList.toggle('expanded');
@@ -280,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 3. 수동 새로고침 버튼 클릭 (버블링 방지)
+    // 3. Manual refresh button click (Stop propagation)
     if (vitalsRefreshBtn) {
         vitalsRefreshBtn.addEventListener('click', (event) => {
             event.stopPropagation();
@@ -294,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchLocalMockVitals = async () => {
         return new Promise(resolve => setTimeout(() => {
             const diskTot = 500;
-            const diskUsed = Math.floor(Math.random() * 480); // 0 ~ 480 사용
+            const diskUsed = Math.floor(Math.random() * 480); // 0 ~ 480 used
             resolve({
                 status: "connected",
                 cpu_percent: Math.floor(Math.random() * 60),
@@ -311,7 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const fetchServerMockVitals = async () => {
         return new Promise(resolve => setTimeout(() => {
-            // 서버 연결 불량 시뮬레이션 (10% 확률)
+            // Simulate poor server connection (10% probability)
             if (Math.random() < 0.1) return resolve({ status: "disconnected" });
 
             const diskTot = 2000;
@@ -331,7 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
-     * 데이터를 받아 UI(텍스트, 색상)를 업데이트
+     * Updates UI (text, color) with received data
      */
     const updateVitalsUI = (data) => {
         if (!vitalsIndicator || !vitalDetailsText) return;
@@ -370,7 +367,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
-     * 실제 데이터 Fetch
+     * Fetch actual data
      */
     const fetchAndUpdateVitals = async () => {
         if (isFetching) return;
@@ -391,7 +388,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
-     * 카운트다운 타이머 UI 업데이트
+     * Update countdown timer UI
      */
     const updateTimerUI = () => {
         if (vitalsTimerText) {
@@ -400,7 +397,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
-     * 즉시 갱신 및 카운트다운 초기화
+     * Immediate refresh and countdown reset
      */
     const forceRefreshVitals = () => {
         countdown = isVitalsExpanded ? 5 : 15;
@@ -411,13 +408,13 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
-     * 1초마다 실행되는 메인 타이머 루프
+     * Main timer loop running every second
      */
     const startVitalsTimerLoop = () => {
         if (timerInterval) clearInterval(timerInterval);
 
         timerInterval = setInterval(() => {
-            // [DEEP DIVE] 브라우저 탭이 숨겨져 있으면(다른 탭을 보고 있으면) 카운트다운을 멈춥니다.
+            // [DEEP DIVE] Stop countdown if the browser tab is hidden (viewing another tab).
             if (document.hidden) return; 
 
             countdown--;
@@ -432,14 +429,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
-            // 유저가 이 탭으로 다시 돌아왔을 때!
+            // When the user returns to this tab
             console.log("Welcome back! Refreshing vitals...");
             forceRefreshVitals();
         }
     });
 
     /**
-     * 초기화 (설정값 동기화 후 타이머 시작)
+     * Initialization (Start timer after syncing settings)
      */
     const syncVitalsLabel = async () => {
         const vitalsLabel = document.getElementById('vitalsLabel');
@@ -456,11 +453,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Vitals 모듈 시작
+    // Start Vitals module
     syncVitalsLabel().then(() => {
         if (vitalsContainer) {
-            forceRefreshVitals(); // 첫 데이터 로드
-            startVitalsTimerLoop(); // 타이머 가동
+            forceRefreshVitals(); // Initial data load
+            startVitalsTimerLoop(); // Start timer
         }
     });
     // ================================================================================================

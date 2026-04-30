@@ -56,8 +56,11 @@ function setupUI() {
     // Overlays
     const openSingle = document.getElementById('openSingleAddBtn');
     const openBulk = document.getElementById('openBulkAddBtn');
+    const cleanBtn = document.getElementById('cleanTasksBtn');
+
     if (openSingle) openSingle.onclick = () => openOverlay('singleAddOverlay');
     if (openBulk) openBulk.onclick = () => openOverlay('bulkAddOverlay');
+    if (cleanBtn) cleanBtn.onclick = handleCleanTasks;
 
     document.querySelectorAll('.close-overlay').forEach(btn => {
         btn.onclick = () => closeOverlay(btn.dataset.target);
@@ -68,11 +71,13 @@ function setupUI() {
     if (singleForm) {
         singleForm.onsubmit = async (e) => {
             e.preventDefault();
+            const groupId = document.getElementById('groupId').value.trim();
             const buildStr = document.getElementById('buildFlags').value.trim();
             const runtimeStr = document.getElementById('runtimeFlags').value.trim();
             const patchFile = document.getElementById('patchFile').value.trim();
             allFeatures.push({
                 id: getNextId(),
+                group_id: groupId || null,
                 build_flags: buildStr ? buildStr.split(/\s+/) : [],
                 runtime_flags: runtimeStr ? runtimeStr.split(/\s+/) : [],
                 patch: patchFile || null
@@ -190,7 +195,7 @@ function renderTable() {
     // Stability: Fill empty rows to maintain table height
     for (let i = pageItems.length; i < itemsPerPage; i++) {
         const tr = document.createElement('tr');
-        tr.innerHTML = '<td colspan="6" style="border-bottom:none;">&nbsp;</td>';
+        tr.innerHTML = '<td colspan="7" style="border-bottom:none;">&nbsp;</td>';
         tbody.appendChild(tr);
     }
 
@@ -225,10 +230,13 @@ function createRow(f, absIdx) {
         pDisp = pDisp.split('patches/').pop();
     }
 
+    const gDisp = f.group_id || '-';
+
     if (isEditing) {
         tr.classList.add('editing-row');
         tr.innerHTML = `
             <td><strong>${f.id}</strong></td>
+            <td><input type="text" id="editG" value="${f.group_id || ''}" class="edit-input" placeholder="Group"></td>
             <td><input type="text" id="editBT" value="${(f.build_flags || []).join(' ')}" class="edit-input"></td>
             <td><input type="text" id="editRT" value="${(f.runtime_flags || []).join(' ')}" class="edit-input"></td>
             <td><input type="text" id="editP" value="${f.patch || ''}" class="edit-input"></td>
@@ -248,6 +256,7 @@ function createRow(f, absIdx) {
         const rt = (f.runtime_flags || []).join(' ') || '-';
         tr.innerHTML = `
             <td><strong>${f.id}</strong></td>
+            <td><small>${gDisp}</small></td>
             <td><small title="${bt}">${bt}</small></td>
             <td><small title="${rt}">${rt}</small></td>
             <td><code title="${f.patch || ''}">${pDisp}</code></td>
@@ -263,6 +272,38 @@ function createRow(f, absIdx) {
         tr.querySelector('#delBtn').onclick = () => deleteFeature(f.id);
     }
     return tr;
+}
+
+/**
+ * Handles the bulk cleaning of pending tasks.
+ * Excludes currently running tasks and already completed tasks.
+ */
+async function handleCleanTasks() {
+    const msg = "Are you sure you want to delete all pending tasks?\n(Currently running tasks and completed tasks will be kept.)";
+    if (!confirm(msg)) return;
+
+    try {
+        // 1. Get current status to see if any task is running
+        const statusRes = await fetch('/api/status');
+        const status = await statusRes.json();
+        const runningId = status.is_running ? status.current_task : null;
+
+        // 2. Filter allFeatures
+        // Keep if: it is currently running OR it is already completed
+        allFeatures = allFeatures.filter(f => {
+            const isRunning = (runningId && f.id === runningId);
+            const isDone = completedIds.has(f.id);
+            return isRunning || isDone;
+        });
+
+        // 3. Save and refresh
+        await saveAllFeatures();
+        renderTable();
+        alert("Clean complete.");
+    } catch (e) {
+        console.error("Clean failed:", e);
+        alert("Failed to clean tasks.");
+    }
 }
 
 /**
@@ -288,15 +329,17 @@ function setupBulkUI() {
     };
 
     if (genBtn) genBtn.onclick = async () => {
+        const gId = document.getElementById('bulkGroupId').value.trim();
         const fBT = document.getElementById('fixedBuildFlags').value.trim().split(/\s+/).filter(x => x);
         const fRT = document.getElementById('fixedRuntimeFlags').value.trim().split(/\s+/).filter(x => x);
-        const tasks = generateCombinations(fBT, fRT);
+        const tasks = generateCombinations(fBT, fRT, gId);
         if (tasks.length === 0) return alert('No tasks generated.');
         if (confirm(`Add ${tasks.length} tasks?`)) {
             allFeatures = [...allFeatures, ...tasks];
             await saveAllFeatures();
             closeOverlay('bulkAddOverlay');
             bulkBuildGroups = []; bulkRuntimeGroups = []; bulkPatches = [];
+            document.getElementById('bulkGroupId').value = '';
             renderBulk(); renderTable();
         }
     };
@@ -332,9 +375,10 @@ function renderBulk() {
  * Generates a Cartesian product of build flags, runtime flags, and patches.
  * @param {string[]} fBT - Fixed build flags to include in every generated task.
  * @param {string[]} fRT - Fixed runtime flags to include in every generated task.
+ * @param {string} gId - Group ID for all generated tasks.
  * @returns {Object[]} An array of generated task objects.
  */
-function generateCombinations(fBT, fRT) {
+function generateCombinations(fBT, fRT, gId) {
     const powerSet = (arr) => arr.reduce((sub, v) => sub.concat(sub.map(s => [...s, ...v])), [[]]);
     const btSets = powerSet(bulkBuildGroups);
     const rtSets = powerSet(bulkRuntimeGroups);
@@ -349,7 +393,6 @@ function generateCombinations(fBT, fRT) {
             const finalBT = [...fBT, ...bt];
             for (const rt of rtSets) {
                 const finalRT = [...fRT, ...rt];
-                if (fBT.length === 0 && fRT.length === 0 && bt.length === 0 && rt.length === 0 && !p) continue;
                 
                 // Ensure the ID is not in completedIds (redundant because getNextId already checks, 
                 // but needed for subsequent IDs in the loop)
@@ -357,7 +400,13 @@ function generateCombinations(fBT, fRT) {
                     nextIdVal++;
                 }
                 
-                tasks.push({ id: (nextIdVal++).toString(), build_flags: finalBT, runtime_flags: finalRT, patch: p });
+                tasks.push({ 
+                    id: (nextIdVal++).toString(), 
+                    group_id: gId || null,
+                    build_flags: finalBT, 
+                    runtime_flags: finalRT, 
+                    patch: p 
+                });
             }
         }
     }
@@ -372,6 +421,7 @@ function generateCombinations(fBT, fRT) {
 async function confirmEdit(id) {
     const f = allFeatures.find(x => x.id === id);
     if (!f) return;
+    f.group_id = document.getElementById('editG').value.trim() || null;
     f.build_flags = document.getElementById('editBT').value.trim().split(/\s+/).filter(x => x);
     f.runtime_flags = document.getElementById('editRT').value.trim().split(/\s+/).filter(x => x);
     f.patch = document.getElementById('editP').value.trim() || null;
