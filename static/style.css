@@ -300,6 +300,24 @@ th, td {
 }
 
 /* Fixed Table Stability */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+#resultsTable {
+    table-layout: fixed;
+    width: 100%;
+}
+
+#resultsTable td {
+    word-break: break-all;
+    white-space: normal;
+    font-size: 0.85rem;
+    vertical-align: top;
+}
+
 .fixed-height-table {
     min-height: 350px;
 }

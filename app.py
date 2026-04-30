@@ -195,6 +195,16 @@ def tasks_page():
     """
     return render_template('tasks.html')
 
+@app.route('/statistics')
+def statistics_page():
+    """
+    Serves the statistics analysis page.
+    
+    Returns:
+        str: Rendered statistics.html template.
+    """
+    return render_template('statistics.html')
+
 @app.route('/api/features', methods=['GET'])
 def get_features():
     """

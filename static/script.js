@@ -170,6 +170,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return calculateMedian(allIterationPeaks);
         });
 
+        // Identify the minimum non-zero value for highlighting
+        const nonZeroPoints = dataPoints.filter(p => p > 0);
+        const minVal = nonZeroPoints.length > 0 ? Math.min(...nonZeroPoints) : null;
+
+        const backgroundColors = dataPoints.map(p => 
+            (p === minVal && p > 0) ? 'rgba(255, 159, 64, 0.6)' : 'rgba(54, 162, 235, 0.5)'
+        );
+        const borderColors = dataPoints.map(p => 
+            (p === minVal && p > 0) ? 'rgba(255, 159, 64, 1)' : 'rgba(54, 162, 235, 1)'
+        );
+
         // Clear existing chart instance if it exists to avoid overlaying charts
         if (memoryChart) {
             memoryChart.destroy();
@@ -182,14 +193,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 datasets: [{
                     label: 'Median Memory Usage (PSS, MB)',
                     data: dataPoints,
-                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
-                    borderColor: 'rgba(54, 162, 235, 1)',
+                    backgroundColor: backgroundColors,
+                    borderColor: borderColors,
                     borderWidth: 1
                 }]
             },
             options: {
                 responsive: true,
-                animation: true, 
+                animation: true,
+                onClick: (event, elements) => {
+                    if (elements.length > 0) {
+                        const index = elements[0].index;
+                        const taskId = labels[index];
+                        window.location.href = `/statistics?task_id=${taskId}`;
+                    }
+                },
                 scales: {
                     y: {
                         beginAtZero: true,
