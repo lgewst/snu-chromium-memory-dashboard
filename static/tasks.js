@@ -415,7 +415,9 @@ function generateCombinations(fBT, fRT, gId) {
     const pOpts = bulkPatches.length > 0 ? bulkPatches : [null];
 
     const tasks = [];
-    let nextIdVal = parseInt(getNextId());
+    
+    // Track IDs used in this session to prevent internal batch collisions
+    const usedInBatch = new Set();
 
     for (const patch of pOpts) {
         const p = patch || null;
@@ -424,14 +426,17 @@ function generateCombinations(fBT, fRT, gId) {
             for (const rt of rtSets) {
                 const finalRT = [...fRT, ...rt];
                 
-                // Ensure the ID is not in completedIds (redundant because getNextId already checks, 
-                // but needed for subsequent IDs in the loop)
-                while (completedIds.has(nextIdVal.toString())) {
+                // Use getNextId but also respect IDs just assigned in this loop
+                let nextIdVal = parseInt(getNextId());
+                while (usedInBatch.has(nextIdVal.toString())) {
                     nextIdVal++;
                 }
                 
+                const finalId = nextIdVal.toString();
+                usedInBatch.add(finalId);
+                
                 tasks.push({ 
-                    id: (nextIdVal++).toString(), 
+                    id: finalId, 
                     group_id: gId || null,
                     build_flags: finalBT, 
                     runtime_flags: finalRT, 
