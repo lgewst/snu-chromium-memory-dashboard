@@ -2,6 +2,7 @@
 settings.json
 test_results.json
 memory_features.json
+build_logs.json
 __pycache__/
 *.pyc
 venv/

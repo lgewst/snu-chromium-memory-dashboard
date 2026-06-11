@@ -33,9 +33,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusDiv = document.getElementById('status');
     const resultsTableBody = document.querySelector('#resultsTable tbody');
     const memoryChartCanvas = document.getElementById('memoryChart');
+    const buildLogsList = document.getElementById('buildLogsList');
     
     // Guard clause for non-dashboard pages
-    if (!startBtn || !stopBtn || !statusDiv || !resultsTableBody || !memoryChartCanvas) {
+    if (!startBtn || !stopBtn || !statusDiv || !resultsTableBody || !memoryChartCanvas || !buildLogsList) {
         console.log("Dashboard elements not found, skipping dashboard initialization.");
         return;
     }
@@ -44,6 +45,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
     let memoryChart;
     let lastResultsCount = -1;
+    let lastLogsCount = -1;
+    let logCurrentPage = 1;
+    const logsPerPage = 5;
+    let allLogs = [];
 
     /**
      * Fetches the current execution status from the backend.
@@ -89,6 +94,81 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (err) {
             console.error('Failed to fetch results:', err);
+        }
+    };
+
+    /**
+     * Fetches recent build logs and updates the UI.
+     * @async
+     */
+    const fetchBuildLogs = async () => {
+        try {
+            const response = await fetch('/api/build_logs');
+            const logs = await response.json();
+
+            if (logs.length !== lastLogsCount) {
+                lastLogsCount = logs.length;
+                allLogs = logs;
+                updateBuildLogsUI();
+            }
+        } catch (err) {
+            console.error('Failed to fetch build logs:', err);
+        }
+    };
+
+    /**
+     * Updates the build logs UI list with pagination.
+     */
+    const updateBuildLogsUI = () => {
+        const buildLogsList = document.getElementById('buildLogsList');
+        const pagination = document.getElementById('logPagination');
+        const pageCounter = document.getElementById('logPageCounter');
+        
+        if (!allLogs.length) {
+            buildLogsList.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No build logs available yet.</div>';
+            if (pagination) pagination.style.display = 'none';
+            return;
+        }
+
+        const totalPages = Math.ceil(allLogs.length / logsPerPage);
+        if (logCurrentPage > totalPages) logCurrentPage = totalPages;
+        if (logCurrentPage < 1) logCurrentPage = 1;
+
+        const start = (logCurrentPage - 1) * logsPerPage;
+        const end = start + logsPerPage;
+        const paginatedLogs = allLogs.slice(start, end);
+
+        buildLogsList.innerHTML = '';
+        paginatedLogs.forEach(log => {
+            const item = document.createElement('div');
+            item.className = 'build-log-item';
+            
+            const statusClass = log.success ? 'status-success' : 'status-failed';
+            const statusText = log.success ? 'SUCCESS' : 'FAILED';
+            const timestamp = new Date(log.timestamp * 1000).toLocaleString();
+            
+            item.innerHTML = `
+                <div class="build-log-header">
+                    <div class="build-log-title">Task ID: ${log.id}</div>
+                    <div class="build-log-meta">${timestamp} | Build Time: ${log.build_time.toFixed(2)}s</div>
+                    <div class="build-log-status ${statusClass}">${statusText}</div>
+                </div>
+                <div class="build-log-meta" style="margin-bottom: 5px;">Flags: <code>${log.build_flags.join(' ') || 'default'}</code></div>
+                <div class="build-log-content">${log.log || 'No output recorded.'}</div>
+            `;
+            buildLogsList.appendChild(item);
+        });
+
+        // Update Pagination Controls
+        if (totalPages > 1) {
+            if (pagination) pagination.style.display = 'block';
+            if (pageCounter) pageCounter.innerText = `Page ${logCurrentPage} / ${totalPages}`;
+            const prevBtn = document.getElementById('prevLogBtn');
+            const nextBtn = document.getElementById('nextLogBtn');
+            if (prevBtn) prevBtn.disabled = logCurrentPage === 1;
+            if (nextBtn) nextBtn.disabled = logCurrentPage === totalPages;
+        } else {
+            if (pagination) pagination.style.display = 'none';
         }
     };
 
@@ -236,6 +316,47 @@ document.addEventListener('DOMContentLoaded', () => {
         updateStatus();
     });
 
+    // Pagination and Clear Logs Event Listeners
+    const prevLogBtn = document.getElementById('prevLogBtn');
+    const nextLogBtn = document.getElementById('nextLogBtn');
+    const clearLogsBtn = document.getElementById('clearLogsBtn');
+
+    if (prevLogBtn) {
+        prevLogBtn.onclick = () => {
+            if (logCurrentPage > 1) {
+                logCurrentPage--;
+                updateBuildLogsUI();
+            }
+        };
+    }
+
+    if (nextLogBtn) {
+        nextLogBtn.onclick = () => {
+            const totalPages = Math.ceil(allLogs.length / logsPerPage);
+            if (logCurrentPage < totalPages) {
+                logCurrentPage++;
+                updateBuildLogsUI();
+            }
+        };
+    }
+
+    if (clearLogsBtn) {
+        clearLogsBtn.onclick = async () => {
+            if (!confirm('Are you sure you want to clear all build logs?')) return;
+            try {
+                const response = await fetch('/api/build_logs', { method: 'DELETE' });
+                if (response.ok) {
+                    allLogs = [];
+                    lastLogsCount = 0;
+                    logCurrentPage = 1;
+                    updateBuildLogsUI();
+                }
+            } catch (err) {
+                console.error('Failed to clear build logs:', err);
+            }
+        };
+    }
+
     /**
      * Stop Pipeline execution and clean up processes.
      */
@@ -255,15 +376,13 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         updateStatus();
         fetchResults();
+        fetchBuildLogs();
     }, 3000);
 
     // Initial load for immediate feedback
     updateStatus();
     fetchResults();
-
-    // Initial load
-    updateStatus();
-    fetchResults();
+    fetchBuildLogs();
 
 
     // ================================================================================================

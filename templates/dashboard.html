@@ -59,4 +59,21 @@
         </table>
     </div>
 </div>
+
+<div class="build-logs-container card">
+    <div class="build-log-header-main" style="text-align: center; margin-bottom: 20px;">
+        <h2 style="display: inline-block;">Build Log</h2>
+        <button id="clearLogsBtn" class="btn btn-danger btn-sm" style="float: right;">Clear Logs</button>
+    </div>
+    <div id="buildLogsList">
+        <div style="text-align: center; color: #666; padding: 20px;">No build logs available yet.</div>
+    </div>
+    <div class="pagination-footer" id="logPagination" style="display: none; margin-top: 20px;">
+        <div class="pagination-controls">
+            <button id="prevLogBtn" class="btn btn-secondary btn-sm">Previous</button>
+            <span id="logPageCounter">Page 1</span>
+            <button id="nextLogBtn" class="btn btn-secondary btn-sm">Next</button>
+        </div>
+    </div>
+</div>
 {% endblock %}

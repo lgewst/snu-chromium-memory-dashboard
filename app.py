@@ -510,7 +510,7 @@ def get_status():
 def get_results():
     """
     API endpoint to fetch all historical measurement results from test_results.json.
-    
+
     Returns:
         Response: JSON list of all recorded results.
     """
@@ -519,6 +519,33 @@ def get_results():
             try: return jsonify(json.load(f))
             except: return jsonify([])
     return jsonify([])
+
+@app.route('/api/build_logs', methods=['GET'])
+def get_build_logs():
+    """
+    API endpoint to fetch recent build logs from build_logs.json.
+
+    Returns:
+        Response: JSON list of build logs in reverse chronological order.
+    """
+    if os.path.exists('build_logs.json'):
+        with open('build_logs.json', 'r') as f:
+            try: 
+                logs = json.load(f)
+                return jsonify(logs[::-1])
+            except: return jsonify([])
+    return jsonify([])
+
+@app.route('/api/build_logs', methods=['DELETE'])
+def clear_build_logs():
+    """
+    API endpoint to clear all build logs.
+    """
+    pipeline = ChromiumPipeline()
+    if pipeline.clear_build_logs():
+        return jsonify({"status": "success"})
+    else:
+        return jsonify({"status": "error", "message": "Failed to clear logs"}), 500
 
 if __name__ == '__main__':
     # Initialize shared memory manager for IPC

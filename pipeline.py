@@ -231,7 +231,7 @@ class ChromiumPipeline:
             max_retries (int, optional): Override default SSH retry count.
 
         Returns:
-            tuple: (bool success, float elapsed_time_seconds)
+            tuple: (bool success, float elapsed_time_seconds, str output)
         """
         if self.use_ssh and self.ssh_config.get('host'):
             return self._run_ssh_command(cmd, timeout=timeout, max_retries=max_retries)
@@ -240,12 +240,31 @@ class ChromiumPipeline:
             env = os.environ.copy()
             if self.local_depot_tools:
                 env["PATH"] = self.local_depot_tools + os.pathsep + env["PATH"]
+            
             start_time = time.time()
-            process = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            captured_output = []
+            
+            # Start process
+            process = subprocess.Popen(
+                cmd, shell=True, cwd=cwd, env=env, 
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                text=True, bufsize=1, universal_newlines=True
+            )
+
+            # Stream stdout in real-time
             for line in process.stdout:
                 print(line, end='')
-            stdout, stderr = process.communicate()
-            return process.returncode == 0, time.time() - start_time
+                captured_output.append(line)
+            
+            # Capture remaining output and stderr
+            stdout_rem, stderr = process.communicate()
+            if stdout_rem: captured_output.append(stdout_rem)
+            if stderr: 
+                print(stderr, end='')
+                captured_output.append(stderr)
+                
+            full_output = "".join(captured_output)
+            return process.returncode == 0, time.time() - start_time, full_output
 
     def _get_ssh_client(self, timeout=None, max_retries=None):
         """
@@ -289,10 +308,10 @@ class ChromiumPipeline:
             max_retries (int, optional): Connection retry limit.
 
         Returns:
-            tuple: (bool success, float elapsed_time_seconds)
+            tuple: (bool success, float elapsed_time_seconds, str output)
         """
         ssh = self._get_ssh_client(timeout=timeout, max_retries=max_retries)
-        if not ssh: return False, 0
+        if not ssh: return False, 0, "Failed to establish SSH connection."
 
         try:
             start_time = time.time()
@@ -302,14 +321,27 @@ class ChromiumPipeline:
             full_cmd = f"cd {remote_path} && {env_setup} && {cmd}"
 
             stdin, stdout, stderr = ssh.exec_command(full_cmd)
+            
+            captured_output = []
+            # Stream stdout
             for line in stdout:
                 print(line, end='')
+                captured_output.append(line)
+            
+            # Read stderr
+            err_output = stderr.read().decode('utf-8')
+            if err_output:
+                print(err_output, end='')
+                captured_output.append(err_output)
+
             exit_status = stdout.channel.recv_exit_status()
             ssh.close()
-            return exit_status == 0, time.time() - start_time
+            
+            full_output = "".join(captured_output)
+            return exit_status == 0, time.time() - start_time, full_output
         except Exception as e:
-            print(f"SSH Command execution failed: {e}")
-            return False, 0
+            if 'ssh' in locals() and ssh: ssh.close()
+            return False, 0, f"SSH command error: {str(e)}"
 
     def build_chromium(self, build_flags):
         """
@@ -319,7 +351,7 @@ class ChromiumPipeline:
             build_flags (list): List of GN build arguments.
 
         Returns:
-            tuple: (bool success, float build_time_seconds)
+            tuple: (bool success, float build_time_seconds, str log)
         """
         self._update_status("Starting Chromium Build...")
         gn_args = ' '.join(build_flags)
@@ -332,13 +364,17 @@ class ChromiumPipeline:
             cwd = self.local_chromium_path
 
         self._update_status(f"Running gn gen for {build_path}...")
-        success, _ = self.run_command(f"gn gen {build_path} --args='{gn_args}'", cwd=cwd)
-        if not success: return False, 0
+        success, _, gen_log = self.run_command(f"gn gen {build_path} --args='{gn_args}'", cwd=cwd)
+        if not success: 
+            return False, 0, f"GN Gen Failed:\n{gen_log}"
 
         self._update_status(f"Running autoninja for {build_path} (chrome + chromedriver)...")
         j_val = self.settings.get('autoninja_j', 0)
         j_flag = f" -j {j_val}" if j_val and j_val > 0 else ""
-        return self.run_command(f"autoninja -C {build_path}{j_flag} chrome chromedriver", cwd=cwd)
+        success, build_time, build_log = self.run_command(f"autoninja -C {build_path}{j_flag} chrome chromedriver", cwd=cwd)
+        
+        full_log = f"GN Gen Output:\n{gen_log}\n\nNinja Build Output:\n{build_log}"
+        return success, build_time, full_log
 
     def measure_memory(self, runtime_flags, repeats=5):
         """
@@ -699,7 +735,7 @@ class ChromiumPipeline:
         cleanup_cmd = "git checkout -- . && git clean -df"
         cwd = self.ssh_config.get('chromium_path') if self.use_ssh else self.local_chromium_path
         
-        success, _ = self.run_command(cleanup_cmd, cwd=cwd)
+        success, _, _ = self.run_command(cleanup_cmd, cwd=cwd)
         if not success:
             self._update_status("Error: Failed to reset Chromium source tree.")
             self.current_patch_id = None # Unknown state
@@ -718,7 +754,7 @@ class ChromiumPipeline:
                     sftp.close()
                     
                     apply_cmd = f"git apply {remote_patch_tmp} && rm {remote_patch_tmp}"
-                    success, _ = self._run_ssh_command(apply_cmd)
+                    success, _, _ = self._run_ssh_command(apply_cmd)
                     ssh.close()
                 except Exception as e:
                     self._update_status(f"SSH Patch transfer failed: {e}")
@@ -726,7 +762,7 @@ class ChromiumPipeline:
                     return False
             else:
                 # Local: Apply directly
-                success, _ = self.run_command(f"git apply {target_patch_path}", cwd=cwd)
+                success, _, _ = self.run_command(f"git apply {target_patch_path}", cwd=cwd)
             
             if not success:
                 self._update_status(f"Error: Failed to apply patch {patch_val}")
@@ -754,15 +790,64 @@ class ChromiumPipeline:
         if not self._manage_patches(patch_val):
             self._update_status(f"Task {feature['id']}: Patching Failed. Skipping task.")
             return None
-
         self._update_status(f"Task {feature['id']}: Starting Build")
-        build_success, build_time = self.build_chromium(feature.get('build_flags', []))
+        build_success, build_time, build_log = self.build_chromium(feature.get('build_flags', []))
+        
+        # Save build log (both success and failure)
+        self.save_build_log(feature['id'], build_success, build_time, build_log, feature.get('build_flags', []))
+
         if not build_success: 
             self._update_status(f"Task {feature['id']}: Build Failed")
             # Clear state on build failure to be safe
             self.current_patch_id = None
             return None
 
+    def save_build_log(self, feature_id, success, build_time, log, build_flags):
+        """
+        Records the outcome of a build attempt, including the full console output.
+        
+        Args:
+            feature_id (str): ID of the task.
+            success (bool): Whether the build finished successfully.
+            build_time (float): Duration of the build.
+            log (str): The captured stdout/stderr from the build process.
+            build_flags (list): The GN arguments used.
+        """
+        log_entry = {
+            "id": feature_id,
+            "success": success,
+            "build_time": build_time,
+            "log": log,
+            "build_flags": build_flags,
+            "timestamp": time.time()
+        }
+        
+        history = self._load_json('build_logs.json')
+        if not isinstance(history, list):
+            history = []
+            
+        history.append(log_entry)
+        
+        try:
+            with open('build_logs.json', 'w') as f:
+                json.dump(history, f, indent=2)
+        except Exception as e:
+            logging.error(f"Failed to save build log: {e}")
+
+    def clear_build_logs(self):
+        """
+        Deletes the build_logs.json file to clear all build history.
+        """
+        if os.path.exists('build_logs.json'):
+            try:
+                os.remove('build_logs.json')
+                return True
+            except Exception as e:
+                logging.error(f"Failed to clear build logs: {e}")
+                return False
+        return True
+
+    def save_result(self, result):
         repeats = self.settings.get('default_repeats', 5)
         self._update_status(f"Task {feature['id']}: Starting Measurement")
         memory_results = self.measure_memory(feature.get('runtime_flags', []), repeats=repeats)
