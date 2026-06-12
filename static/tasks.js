@@ -4,6 +4,21 @@
  *              pagination, drag-and-drop reordering, and asynchronous data synchronization.
  */
 
+/**
+ * Robustly parses a string of flags into an array, respecting single and double quotes.
+ * This ensures that arguments like --js-flags="--max-old-space-size=4096" are not split.
+ * @param {string} str - The raw input string from the UI.
+ * @returns {string[]} An array of individual flags.
+ */
+function parseFlags(str) {
+    if (!str) return [];
+    // This regex matches tokens that can contain internal quoted sections.
+    // It groups non-whitespace characters and quoted strings together as a single unit.
+    const regex = /(?:[^\s"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')+/g;
+    const matches = str.match(regex);
+    return matches || [];
+}
+
 let allFeatures = [];
 let completedIds = new Set();
 let availablePatches = [];
@@ -18,6 +33,8 @@ const itemsPerPage = 10;
 // Bulk operation buffers
 let bulkRuntimeGroups = [];
 let bulkBuildGroups = [];
+let bulkSeqBuildFlags = [];
+let bulkSeqRuntimeFlags = [];
 let bulkPatches = [];
 
 /**
@@ -79,8 +96,8 @@ function setupUI() {
             allFeatures.push({
                 id: getNextId(),
                 group_id: groupId || null,
-                build_flags: buildStr ? buildStr.split(/\s+/) : [],
-                runtime_flags: runtimeStr ? runtimeStr.split(/\s+/) : [],
+                build_flags: parseFlags(buildStr),
+                runtime_flags: parseFlags(runtimeStr),
                 patch: patchFile || null
             });
             await saveAllFeatures();
@@ -241,7 +258,7 @@ function createRow(f, absIdx) {
             const rt = (f.runtime_flags || []).join(' ') || '-';
             tr.innerHTML = `
                 <td><strong>${f.id}</strong></td>
-                <td><input type="text" id="editG" value="${f.group_id || ''}" class="edit-input" placeholder="Group" autofocus></td>
+                <td><input type="text" id="editG" class="edit-input" placeholder="Group" autofocus></td>
                 <td><small title="${bt}">${bt}</small></td>
                 <td><small title="${rt}">${rt}</small></td>
                 <td><code title="${f.patch || ''}">${pDisp}</code></td>
@@ -253,14 +270,15 @@ function createRow(f, absIdx) {
                     </div>
                 </td>
             `;
+            tr.querySelector('#editG').value = f.group_id || '';
         } else {
             // Full edit mode for pending tasks
             tr.innerHTML = `
                 <td><strong>${f.id}</strong></td>
-                <td><input type="text" id="editG" value="${f.group_id || ''}" class="edit-input" placeholder="Group"></td>
-                <td><input type="text" id="editBT" value="${(f.build_flags || []).join(' ')}" class="edit-input"></td>
-                <td><input type="text" id="editRT" value="${(f.runtime_flags || []).join(' ')}" class="edit-input"></td>
-                <td><input type="text" id="editP" value="${f.patch || ''}" class="edit-input"></td>
+                <td><input type="text" id="editG" class="edit-input" placeholder="Group"></td>
+                <td><input type="text" id="editBT" class="edit-input"></td>
+                <td><input type="text" id="editRT" class="edit-input"></td>
+                <td><input type="text" id="editP" class="edit-input"></td>
                 <td>-</td>
                 <td>
                     <div class="btn-group">
@@ -269,6 +287,10 @@ function createRow(f, absIdx) {
                     </div>
                 </td>
             `;
+            tr.querySelector('#editG').value = f.group_id || '';
+            tr.querySelector('#editBT').value = (f.build_flags || []).join(' ');
+            tr.querySelector('#editRT').value = (f.runtime_flags || []).join(' ');
+            tr.querySelector('#editP').value = f.patch || '';
         }
         tr.querySelector('#confEdit').onclick = () => confirmEdit(f.id);
         tr.querySelector('#cancEdit').onclick = () => { editingId = null; editingGroupOnly = false; renderTable(); };
@@ -342,16 +364,32 @@ async function handleCleanTasks() {
 function setupBulkUI() {
     const addRG = document.getElementById('addRuntimeGroup');
     const addBG = document.getElementById('addBuildGroup');
+    const addSB = document.getElementById('addSeqBuildFlag');
+    const addSR = document.getElementById('addSeqRuntimeFlag');
     const addP = document.getElementById('addPatchEntry');
     const genBtn = document.getElementById('generateBulkBtn');
 
     if (addBG) addBG.onclick = () => {
         const v = document.getElementById('newBuildGroup').value.trim();
-        if (v) { bulkBuildGroups.push(v.split(/\s+/)); document.getElementById('newBuildGroup').value = ''; renderBulk(); }
+        if (v) { bulkBuildGroups.push(parseFlags(v)); document.getElementById('newBuildGroup').value = ''; renderBulk(); }
+    };
+    if (addSB) addSB.onclick = () => {
+        const v = document.getElementById('newSeqBuildFlag').value.trim();
+        // Allow adding empty string as an explicit empty flag set
+        bulkSeqBuildFlags.push(parseFlags(v)); 
+        document.getElementById('newSeqBuildFlag').value = ''; 
+        renderBulk();
     };
     if (addRG) addRG.onclick = () => {
         const v = document.getElementById('newRuntimeGroup').value.trim();
-        if (v) { bulkRuntimeGroups.push(v.split(/\s+/)); document.getElementById('newRuntimeGroup').value = ''; renderBulk(); }
+        if (v) { bulkRuntimeGroups.push(parseFlags(v)); document.getElementById('newRuntimeGroup').value = ''; renderBulk(); }
+    };
+    if (addSR) addSR.onclick = () => {
+        const v = document.getElementById('newSeqRuntimeFlag').value.trim();
+        // Allow adding empty string as an explicit empty flag set
+        bulkSeqRuntimeFlags.push(parseFlags(v)); 
+        document.getElementById('newSeqRuntimeFlag').value = ''; 
+        renderBulk();
     };
     if (addP) addP.onclick = () => {
         const v = document.getElementById('newPatchEntry').value.trim();
@@ -360,8 +398,8 @@ function setupBulkUI() {
 
     if (genBtn) genBtn.onclick = async () => {
         const gId = document.getElementById('bulkGroupId').value.trim();
-        const fBT = document.getElementById('fixedBuildFlags').value.trim().split(/\s+/).filter(x => x);
-        const fRT = document.getElementById('fixedRuntimeFlags').value.trim().split(/\s+/).filter(x => x);
+        const fBT = parseFlags(document.getElementById('fixedBuildFlags').value.trim());
+        const fRT = parseFlags(document.getElementById('fixedRuntimeFlags').value.trim());
         const tasks = generateCombinations(fBT, fRT, gId);
         if (tasks.length === 0) return alert('No tasks generated.');
         if (confirm(`Add ${tasks.length} tasks?`)) {
@@ -369,6 +407,7 @@ function setupBulkUI() {
             await saveAllFeatures();
             closeOverlay('bulkAddOverlay');
             bulkBuildGroups = []; bulkRuntimeGroups = []; bulkPatches = [];
+            bulkSeqBuildFlags = []; bulkSeqRuntimeFlags = [];
             document.getElementById('bulkGroupId').value = '';
             renderBulk(); renderTable();
         }
@@ -385,11 +424,18 @@ function renderBulk() {
         ul.innerHTML = '';
         arr.forEach((item, idx) => {
             const li = document.createElement('li');
-            const txt = Array.isArray(item) ? item.join(' ') : (item || '[No Patch]');
+            let txt;
+            if (Array.isArray(item)) {
+                txt = item.length > 0 ? item.join(' ') : '[Empty Flags]';
+            } else {
+                txt = item || '[No Patch]';
+            }
             li.innerHTML = `<span>${txt}</span><span class="remove-item" style="cursor:pointer; color:red;">&times;</span>`;
             li.querySelector('.remove-item').onclick = () => {
                 if (type === 'BT') bulkBuildGroups.splice(idx, 1);
+                if (type === 'SBT') bulkSeqBuildFlags.splice(idx, 1);
                 if (type === 'RT') bulkRuntimeGroups.splice(idx, 1);
+                if (type === 'SRT') bulkSeqRuntimeFlags.splice(idx, 1);
                 if (type === 'P') bulkPatches.splice(idx, 1);
                 renderBulk();
             };
@@ -397,51 +443,63 @@ function renderBulk() {
         });
     };
     draw('buildGroupList', bulkBuildGroups, 'BT');
+    draw('seqBuildFlagList', bulkSeqBuildFlags, 'SBT');
     draw('runtimeGroupList', bulkRuntimeGroups, 'RT');
+    draw('seqRuntimeFlagList', bulkSeqRuntimeFlags, 'SRT');
     draw('patchEntryList', bulkPatches, 'P');
 }
 
 /**
- * Generates a Cartesian product of build flags, runtime flags, and patches.
- * @param {string[]} fBT - Fixed build flags to include in every generated task.
- * @param {string[]} fRT - Fixed runtime flags to include in every generated task.
- * @param {string} gId - Group ID for all generated tasks.
+ * Generates tasks by combining fixed, combinatorial, and sequential options.
+ * Each dimension (Combinatorial Build, Sequential Build, Combinatorial Runtime, 
+ * Sequential Runtime, Sequential Patch) acts as an independent factor in the product.
+ * 
+ * @param {string[]} fBT - Fixed build flags.
+ * @param {string[]} fRT - Fixed runtime flags.
+ * @param {string} gId - Common Group ID.
  * @returns {Object[]} An array of generated task objects.
  */
 function generateCombinations(fBT, fRT, gId) {
     const powerSet = (arr) => arr.reduce((sub, v) => sub.concat(sub.map(s => [...s, ...v])), [[]]);
+    
+    // Dim 1 & 3: Combinatorial sets (2^n)
     const btSets = powerSet(bulkBuildGroups);
     const rtSets = powerSet(bulkRuntimeGroups);
+
+    // Dim 2, 4, 5: Sequential options (identity element is [[]] or [null] if empty)
+    const sbOpts = bulkSeqBuildFlags.length > 0 ? bulkSeqBuildFlags : [[]];
+    const srOpts = bulkSeqRuntimeFlags.length > 0 ? bulkSeqRuntimeFlags : [[]];
     const pOpts = bulkPatches.length > 0 ? bulkPatches : [null];
 
     const tasks = [];
-    
-    // Track IDs used in this session to prevent internal batch collisions
     const usedInBatch = new Set();
 
-    for (const patch of pOpts) {
-        const p = patch || null;
-        for (const bt of btSets) {
-            const finalBT = [...fBT, ...bt];
+    // Independent 5-dimensional Cartesian product
+    for (const bt of btSets) {
+        for (const sb of sbOpts) {
             for (const rt of rtSets) {
-                const finalRT = [...fRT, ...rt];
-                
-                // Use getNextId but also respect IDs just assigned in this loop
-                let nextIdVal = parseInt(getNextId());
-                while (usedInBatch.has(nextIdVal.toString())) {
-                    nextIdVal++;
+                for (const sr of srOpts) {
+                    for (const p of pOpts) {
+                        const finalBT = [...fBT, ...bt, ...sb];
+                        const finalRT = [...fRT, ...rt, ...sr];
+                        const finalPatch = p || null;
+
+                        let nextIdVal = parseInt(getNextId());
+                        while (usedInBatch.has(nextIdVal.toString())) {
+                            nextIdVal++;
+                        }
+                        const finalId = nextIdVal.toString();
+                        usedInBatch.add(finalId);
+
+                        tasks.push({
+                            id: finalId,
+                            group_id: gId || null,
+                            build_flags: finalBT,
+                            runtime_flags: finalRT,
+                            patch: finalPatch
+                        });
+                    }
                 }
-                
-                const finalId = nextIdVal.toString();
-                usedInBatch.add(finalId);
-                
-                tasks.push({ 
-                    id: finalId, 
-                    group_id: gId || null,
-                    build_flags: finalBT, 
-                    runtime_flags: finalRT, 
-                    patch: p 
-                });
             }
         }
     }
@@ -466,8 +524,8 @@ async function confirmEdit(id) {
         const rtInput = document.getElementById('editRT');
         const pInput = document.getElementById('editP');
         
-        if (btInput) f.build_flags = btInput.value.trim().split(/\s+/).filter(x => x);
-        if (rtInput) f.runtime_flags = rtInput.value.trim().split(/\s+/).filter(x => x);
+        if (btInput) f.build_flags = parseFlags(btInput.value.trim());
+        if (rtInput) f.runtime_flags = parseFlags(rtInput.value.trim());
         if (pInput) f.patch = pInput.value.trim() || null;
     }
     

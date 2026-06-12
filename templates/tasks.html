@@ -82,11 +82,14 @@
 <div id="bulkAddOverlay" class="overlay">
     <div class="overlay-content bulk-content">
         <div class="overlay-header">
-            <h3>Bulk Add Features (Combinatorial)</h3>
+            <h3>Bulk Add Features</h3>
             <span class="close-overlay" data-target="bulkAddOverlay">&times;</span>
         </div>
         <div class="overlay-body scrollable-body">
             <div class="bulk-form-vertical">
+                <div style="background: #eef6ff; padding: 10px; border-radius: 4px; margin-bottom: 20px; font-size: 0.85rem; color: #34495e;">
+                    <i class="fa-solid fa-circle-info"></i> <strong>Tip:</strong> You can add multiple flags at once by separating them with spaces (e.g., <code>is_debug=false enable_nacl=true</code>). For <strong>Sequential</strong> modes, clicking Add with an empty box will include a "No Flags" step in the sequence.
+                </div>
                 <div class="form-group">
                     <label>0. Group ID (Optional, common to all)</label>
                     <input type="text" id="bulkGroupId" placeholder="e.g., batch-run-01">
@@ -96,7 +99,7 @@
                     <input type="text" id="fixedBuildFlags" placeholder="is_official_build=true">
                 </div>
                 <div class="form-group">
-                    <label>2. Individual Build Groups (Combinatorial)</label>
+                    <label>2. Individual Build Flag Groups (Combinatorial)</label>
                     <div class="input-append">
                         <input type="text" id="newBuildGroup" placeholder="enable_nacl=false">
                         <button type="button" id="addBuildGroup" class="btn btn-sm btn-primary">Add</button>
@@ -104,11 +107,19 @@
                     <ul id="buildGroupList" class="bulk-list"></ul>
                 </div>
                 <div class="form-group">
-                    <label>3. Fixed Runtime Flags (Common to all)</label>
+                    <label>3. Sequential Build Flag Groups (Sequential)</label>
+                    <div class="input-append">
+                        <input type="text" id="newSeqBuildFlag" placeholder="target_cpu=x64">
+                        <button type="button" id="addSeqBuildFlag" class="btn btn-sm btn-primary">Add</button>
+                    </div>
+                    <ul id="seqBuildFlagList" class="bulk-list"></ul>
+                </div>
+                <div class="form-group">
+                    <label>4. Fixed Runtime Flags (Common to all)</label>
                     <input type="text" id="fixedRuntimeFlags" placeholder="--enable-low-end-device-mode">
                 </div>
                 <div class="form-group">
-                    <label>4. Individual Runtime Groups (Combinatorial)</label>
+                    <label>5. Individual Runtime Flag Groups (Combinatorial)</label>
                     <div class="input-append">
                         <input type="text" id="newRuntimeGroup" placeholder="--no-sandbox">
                         <button type="button" id="addRuntimeGroup" class="btn btn-sm btn-primary">Add</button>
@@ -116,7 +127,15 @@
                     <ul id="runtimeGroupList" class="bulk-list"></ul>
                 </div>
                 <div class="form-group">
-                    <label>5. Patch Files (Combinatorial)</label>
+                    <label>6. Sequential Runtime Flag Groups (Sequential)</label>
+                    <div class="input-append">
+                        <input type="text" id="newSeqRuntimeFlag" placeholder="--disable-gpu">
+                        <button type="button" id="addSeqRuntimeFlag" class="btn btn-sm btn-primary">Add</button>
+                    </div>
+                    <ul id="seqRuntimeFlagList" class="bulk-list"></ul>
+                </div>
+                <div class="form-group">
+                    <label>7. Patch Files (Sequential)</label>
                     <div class="input-with-button">
                         <div class="autocomplete-container">
                             <input type="text" id="newPatchEntry" placeholder="fix.patch" autocomplete="off">
