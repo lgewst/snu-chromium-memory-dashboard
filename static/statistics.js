@@ -5,340 +5,372 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-    // DOM Elements
-    const urlListContainer = document.getElementById('urlList');
-    const groupListContainer = document.getElementById('groupList');
-    const buildFlagListContainer = document.getElementById('buildFlagList');
-    const runtimeFlagListContainer = document.getElementById('runtimeFlagList');
-    const patchListContainer = document.getElementById('patchList');
-    const taskListContainer = document.getElementById('taskList');
-    const iterationFilterSection = document.getElementById('iterationFilterSection');
-    const iterationListContainer = document.getElementById('iterationList');
-    const ctx = document.getElementById('pssTimeSeriesChart').getContext('2d');
+    // ==========================================
+    // 1. UI Elements Configuration
+    // ==========================================
+    const uiElements = {
+        containers: {
+            url: document.getElementById('urlList'),
+            group: document.getElementById('groupList'),
+            buildFlag: document.getElementById('buildFlagList'),
+            runtimeFlag: document.getElementById('runtimeFlagList'),
+            patch: document.getElementById('patchList'),
+            task: document.getElementById('taskList')
+        },
+        controls: {
+            viewMode: document.querySelectorAll('input[name="viewMode"]'),
+            metric: document.querySelectorAll('input[name="metric"]')
+        },
+        chartCtx: document.getElementById('pssTimeSeriesChart').getContext('2d')
+    };
 
-    // State Management
-    let allResults = [];
-    let pssChart = null;
+    // ==========================================
+    // 2. State Management
+    // ==========================================
+    const state = {
+        rawPayload: [],        // Original API data
+        viewMode: 'all',       // Renders average of 1st iterations vs all iterations
+        activeMetric: 'pss',   // Current evaluation metric (pss, rss, jsheap)
+        
+        availableFilters: {
+            urls: new Set(),
+            groups: new Set(),
+            buildFlags: new Set(),
+            runtimeFlags: new Set(),
+            patches: new Set()
+        },
+        selectedFilters: {
+            urls: new Set(),
+            groups: new Set(),
+            buildFlags: new Set(),
+            runtimeFlags: new Set(),
+            patches: new Set(),
+            taskIds: new Set()
+        },
+        memoryChartInstance: null
+    };
 
-    let selectedUrls = new Set();
-    let selectedGroups = new Set();
-    let selectedBuildFlags = new Set();
-    let selectedRuntimeFlags = new Set();
-    let selectedPatches = new Set();
-    let selectedTaskIds = new Set();
-    let selectedIterations = new Set(); // For Single Task Mode
-
-    let availableUrls = new Set();
-    let availableGroups = new Set();
     const NONE_GROUP = "__NONE__"; // Internal constant for tasks without a group
 
+    // ==========================================
+    // 3. Initialization & Event Bindings
+    // ==========================================
     /**
-     * Initializes the statistics page.
+     * Bootstraps the statistics dashboard, fetches payload, and starts the render pipeline.
      */
     const init = async () => {
+        bindControlEvents();
+        bindPopoverBulkActions();
+
         try {
             const response = await fetch('/api/results');
-            allResults = await response.json();
-            
-            if (allResults.length === 0) {
-                document.querySelectorAll('.group-list, .task-filter-list').forEach(el => el.innerHTML = '<span>No results available.</span>');
-                return;
-            }
+            state.rawPayload = await response.json();
 
-            // Extract global uniques
-            allResults.forEach(res => {
-                if (res.group_id) {
-                    availableGroups.add(res.group_id);
-                } else {
-                    availableGroups.add(NONE_GROUP);
-                }
-                
-                if (res.memory_results && res.memory_results[0]) {
-                    Object.keys(res.memory_results[0].urls).forEach(url => availableUrls.add(url));
-                }
-            });
+            if (!state.rawPayload || state.rawPayload.length === 0) return;
 
-            // Default selections
-            availableUrls.forEach(url => selectedUrls.add(url));
-            availableGroups.forEach(group => selectedGroups.add(group));
-            
-            // Check for deep link
-            const urlParams = new URLSearchParams(window.location.search);
-            const targetTaskId = urlParams.get('task_id');
+            parseGlobalAttributes();
 
-            if (targetTaskId) {
-                renderFilterA();
-                renderGroupFilters();
-                updateFilterB(targetTaskId); 
-            } else {
-                renderFilterA();
-                renderGroupFilters();
-                updateFilterB();
-            }
+            // Set initial state: All URLs and Groups selected
+            state.availableFilters.urls.forEach(url => state.selectedFilters.urls.add(url));
+            state.availableFilters.groups.forEach(group => state.selectedFilters.groups.add(group));
+
+            // Initial render
+            renderPrimaryFilters();
+            executeCascadeFilters();
         } catch (err) {
             console.error('Failed to initialize statistics:', err);
         }
     };
 
-    /**
-     * URLs list (A)
-     */
-    const renderFilterA = () => {
-        urlListContainer.innerHTML = '';
-        Array.from(availableUrls).sort().forEach(url => {
-            urlListContainer.appendChild(createCheckboxItem(url, selectedUrls.has(url), (checked) => {
-                checked ? selectedUrls.add(url) : selectedUrls.delete(url);
-                updateChart();
-            }));
-        });
-    };
-
-    /**
-     * Group Filter
-     */
-    const renderGroupFilters = () => {
-        groupListContainer.innerHTML = '';
-        
-        // Handle "None" (No Group) first
-        if (availableGroups.has(NONE_GROUP)) {
-            const noneItem = createCheckboxItem("None", selectedGroups.has(NONE_GROUP), (checked) => {
-                checked ? selectedGroups.add(NONE_GROUP) : selectedGroups.delete(NONE_GROUP);
-                updateFilterB();
+    const bindControlEvents = () => {
+        uiElements.controls.viewMode.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                state.viewMode = e.target.value;
+                renderMemoryChart(); // Redraw chart instantly on mode change
             });
-            noneItem.style.fontWeight = "bold";
-            noneItem.style.borderBottom = "1px solid #eee";
-            noneItem.style.marginBottom = "5px";
-            noneItem.style.paddingBottom = "5px";
-            groupListContainer.appendChild(noneItem);
-        }
+        });
 
-        // Other groups sorted
-        Array.from(availableGroups)
-            .filter(g => g !== NONE_GROUP)
-            .sort()
-            .forEach(group => {
-                groupListContainer.appendChild(createCheckboxItem(group, selectedGroups.has(group), (checked) => {
-                    checked ? selectedGroups.add(group) : selectedGroups.delete(group);
-                    updateFilterB();
-                }));
+        uiElements.controls.metric.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                state.activeMetric = e.target.value;
+                renderMemoryChart(); // Redraw chart instantly on metric change
             });
+        });
     };
 
-    /**
-     * Filter B: Flags & Patches
-     * Cascades from Group Filter. Resets to unchecked.
-     */
-    const updateFilterB = (targetTaskId = null) => {
-        const groupFiltered = allResults.filter(res => {
-            const g = res.group_id || NONE_GROUP;
-            return selectedGroups.has(g);
+    const parseGlobalAttributes = () => {
+        state.rawPayload.forEach(result => {
+            state.availableFilters.groups.add(result.group_id || NONE_GROUP);
+            if (result.memory_results?.[0]?.urls) {
+                Object.keys(result.memory_results[0].urls).forEach(url => state.availableFilters.urls.add(url));
+            }
         });
+    };
+
+    // ==========================================
+    // 4. Cascade Filtering Pipeline
+    // ==========================================
+    /**
+     * Executes the hierarchical filtering logic (Groups -> Flags/Patches -> Tasks).
+     */
+    const executeCascadeFilters = () => {
+        // Step 1: Filter by Group
+        const tasksInGroups = state.rawPayload.filter(res => 
+            state.selectedFilters.groups.has(res.group_id || NONE_GROUP)
+        );
         
-        const bBuildFlags = new Set();
-        const bRuntimeFlags = new Set();
-        const bPatches = new Set();
+        // Step 2: Extract available secondary filters (Flags & Patches)
+        state.availableFilters.buildFlags.clear();
+        state.availableFilters.runtimeFlags.clear();
+        state.availableFilters.patches.clear();
 
-        groupFiltered.forEach(res => {
-            (res.build_flags || []).forEach(f => bBuildFlags.add(f));
-            (res.runtime_flags || []).forEach(f => bRuntimeFlags.add(f));
-            if (res.patch) bPatches.add(res.patch);
+        tasksInGroups.forEach(res => {
+            (res.build_flags || []).forEach(f => state.availableFilters.buildFlags.add(f));
+            (res.runtime_flags || []).forEach(f => state.availableFilters.runtimeFlags.add(f));
+            if (res.patch) state.availableFilters.patches.add(res.patch);
         });
 
-        selectedBuildFlags.clear();
-        selectedRuntimeFlags.clear();
-        selectedPatches.clear();
+        // Step 3: Render Sub-filters
+        renderCheckboxList(uiElements.containers.buildFlag, state.availableFilters.buildFlags, state.selectedFilters.buildFlags, executeCascadeFilters);
+        renderCheckboxList(uiElements.containers.runtimeFlag, state.availableFilters.runtimeFlags, state.selectedFilters.runtimeFlags, executeCascadeFilters);
+        renderCheckboxList(uiElements.containers.patch, state.availableFilters.patches, state.selectedFilters.patches, executeCascadeFilters);
 
-        renderSubFilter(buildFlagListContainer, bBuildFlags, selectedBuildFlags, updateFilterC);
-        renderSubFilter(runtimeFlagListContainer, bRuntimeFlags, selectedRuntimeFlags, updateFilterC);
-        renderSubFilter(patchListContainer, bPatches, selectedPatches, updateFilterC);
-
-        updateFilterC(targetTaskId);
-    };
-
-    /**
-     * Filter C: Individual Tasks
-     * Cascades from Filter B. Resets to all-checked (unless targetTaskId provided).
-     */
-    const updateFilterC = (targetTaskId = null) => {
-        const bFiltered = allResults.filter(res => {
-            const g = res.group_id || NONE_GROUP;
-            if (!selectedGroups.has(g)) return false;
-
-            const buildMatch = selectedBuildFlags.size === 0 || res.build_flags.some(f => selectedBuildFlags.has(f));
-            const runtimeMatch = selectedRuntimeFlags.size === 0 || res.runtime_flags.some(f => selectedRuntimeFlags.has(f));
-            const patchMatch = selectedPatches.size === 0 || (res.patch && selectedPatches.has(res.patch));
+        // Step 4: Final Task Filtering
+        const finalValidTasks = tasksInGroups.filter(res => {
+            const buildMatch = state.selectedFilters.buildFlags.size === 0 || res.build_flags.some(f => state.selectedFilters.buildFlags.has(f));
+            const runtimeMatch = state.selectedFilters.runtimeFlags.size === 0 || res.runtime_flags.some(f => state.selectedFilters.runtimeFlags.has(f));
+            const patchMatch = state.selectedFilters.patches.size === 0 || (res.patch && state.selectedFilters.patches.has(res.patch));
             return buildMatch && runtimeMatch && patchMatch;
         });
 
-        taskListContainer.innerHTML = '';
-        selectedTaskIds.clear();
+        // Step 5: Update Task UI List
+        uiElements.containers.task.innerHTML = '';
+        state.selectedFilters.taskIds.clear();
 
-        bFiltered.forEach(res => {
-            const isSelected = targetTaskId ? (res.id === targetTaskId) : true;
-            if (isSelected) selectedTaskIds.add(res.id);
-
-            const item = document.createElement('label');
-            item.className = 'task-item';
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.checked = isSelected;
-            cb.addEventListener('change', (e) => {
-                e.target.checked ? selectedTaskIds.add(res.id) : selectedTaskIds.delete(res.id);
-                updateChart();
+        finalValidTasks.forEach(res => {
+            state.selectedFilters.taskIds.add(res.id); // Auto-select on filter
+            const detailsStr = `[${res.build_flags.join(', ')}]`;
+            const item = buildSecureToggleNode(res.id, detailsStr, true, (isChecked) => {
+                isChecked ? state.selectedFilters.taskIds.add(res.id) : state.selectedFilters.taskIds.delete(res.id);
+                renderMemoryChart(); // Task changes only require a chart redraw
             });
-            const content = document.createElement('div');
-            content.innerHTML = `<strong>${res.id}</strong> <span class="task-details">Flags: [${res.build_flags.join(', ')} | ${res.runtime_flags.join(', ')}] Patch: ${res.patch || 'None'}</span>`;
-            item.appendChild(cb);
-            item.appendChild(content);
-            taskListContainer.appendChild(item);
+            uiElements.containers.task.appendChild(item);
         });
 
-        updateChart();
+        renderMemoryChart();
+    };
+
+    // ==========================================
+    // 5. Secure UI Renderers (XSS Prevented)
+    // ==========================================
+    const renderPrimaryFilters = () => {
+        uiElements.containers.url.innerHTML = '';
+        Array.from(state.availableFilters.urls).sort().forEach(url => {
+            const item = buildSecureToggleNode(url, '', state.selectedFilters.urls.has(url), (isChecked) => {
+                isChecked ? state.selectedFilters.urls.add(url) : state.selectedFilters.urls.delete(url);
+                renderMemoryChart();
+            });
+            uiElements.containers.url.appendChild(item);
+        });
+
+        uiElements.containers.group.innerHTML = '';
+        Array.from(state.availableFilters.groups).sort().forEach(group => {
+            const label = group === NONE_GROUP ? "None" : group;
+            const item = buildSecureToggleNode(label, '', state.selectedFilters.groups.has(group), (isChecked) => {
+                isChecked ? state.selectedFilters.groups.add(group) : state.selectedFilters.groups.delete(group);
+                executeCascadeFilters();
+            });
+            uiElements.containers.group.appendChild(item);
+        });
+    };
+
+    const renderCheckboxList = (container, itemsSet, selectedSet, callback) => {
+        container.innerHTML = '';
+        Array.from(itemsSet).sort().forEach(val => {
+            const item = buildSecureToggleNode(val, '', selectedSet.has(val), (isChecked) => {
+                isChecked ? selectedSet.add(val) : selectedSet.delete(val);
+                callback();
+            });
+            container.appendChild(item);
+        });
     };
 
     /**
-     * Chart Update - Includes Single Task Mode (Iterations)
+     * Safely constructs DOM elements using textContent.
      */
-    const updateChart = () => {
-        const finalResults = allResults.filter(res => selectedTaskIds.has(res.id));
+    const buildSecureToggleNode = (primaryText, secondaryText, isChecked, onChangeEvent) => {
+        const wrapper = document.createElement('label');
+        wrapper.className = 'group-item';
         
-        if (finalResults.length === 1) {
-            renderSingleTaskMode(finalResults[0]);
-        } else {
-            renderMultiTaskMode(finalResults);
-        }
-    };
-
-    /**
-     * Single Task Mode: Shows iterations 1..N
-     */
-    const renderSingleTaskMode = (res) => {
-        iterationFilterSection.style.display = 'block';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = isChecked;
+        checkbox.addEventListener('change', (e) => onChangeEvent(e.target.checked));
         
-        const iterationCount = res.memory_results.length;
-        if (selectedIterations.size === 0 || Array.from(selectedIterations).some(i => i > iterationCount)) {
-            selectedIterations.clear();
-            for (let i = 1; i <= iterationCount; i++) selectedIterations.add(i);
+        const textContainer = document.createElement('div');
+        const strongTag = document.createElement('strong');
+        strongTag.textContent = primaryText; 
+        textContainer.appendChild(strongTag);
+        
+        if (secondaryText) {
+            const spanTag = document.createElement('span');
+            spanTag.className = 'task-details';
+            spanTag.textContent = ` ${secondaryText}`;
+            textContainer.appendChild(spanTag);
         }
 
-        iterationListContainer.innerHTML = '';
-        for (let i = 1; i <= iterationCount; i++) {
-            iterationListContainer.appendChild(createCheckboxItem(`Iteration ${i}`, selectedIterations.has(i), (checked) => {
-                checked ? selectedIterations.add(i) : selectedIterations.delete(i);
-                updateChart();
-            }));
-        }
+        wrapper.appendChild(checkbox);
+        wrapper.appendChild(textContainer);
+        return wrapper;
+    };
 
-        const datasets = [];
-        res.memory_results.forEach((iter, idx) => {
-            const iterNum = idx + 1;
-            if (!selectedIterations.has(iterNum)) return;
-
-            datasets.push({
-                label: `Iteration ${iterNum}`,
-                data: calculateIterationPoints(iter),
-                borderColor: getSeriesColor(idx, false),
-                backgroundColor: getSeriesColor(idx, false),
-                borderWidth: 2,
-                fill: false,
-                tension: 0.1,
-                pointRadius: 0
-            });
-        });
-
-        let minPeak = Infinity, minIdx = -1;
-        datasets.forEach((ds, idx) => {
-            const iterNum = parseInt(ds.label.split(' ')[1]);
-            const iterData = res.memory_results[iterNum - 1];
-            let peakSum = 0, count = 0;
-            selectedUrls.forEach(url => {
-                if (iterData.urls[url]) {
-                    peakSum += iterData.urls[url].peak_pss || 0;
-                    count++;
-                }
-            });
-            const avg = count > 0 ? peakSum / count : 0;
-            if (avg > 0 && avg < minPeak) { minPeak = avg; minIdx = idx; }
-        });
-
-        if (minIdx !== -1) {
-            datasets[minIdx].borderColor = 'rgba(255, 159, 64, 1)';
-            datasets[minIdx].borderWidth = 4;
-            datasets[minIdx].zIndex = 10;
-        }
-
-        drawChart(datasets, `Single Task Analysis: ${res.id} (Iterations)`);
+    // ==========================================
+    // 6. Metrics & Math Extraction (Original Logic Applied)
+    // ==========================================
+    const resolveDataPointValue = (sample) => {
+        if (state.activeMetric === 'rss') return sample.rss || 0;
+        if (state.activeMetric === 'jsheap') return sample.jsheap || sample.js_heap_size || 0;
+        return sample.pss || 0; // Default PSS
     };
 
     /**
-     * Multi Task Mode
+     * Gets the server-calculated peak value averaged across selected URLs.
      */
-    const renderMultiTaskMode = (results) => {
-        iterationFilterSection.style.display = 'none';
-        selectedIterations.clear(); 
-
-        const datasets = results.map((res, idx) => {
-            return {
-                label: res.id,
-                data: calculateAvgPoints(res.memory_results[0]),
-                borderWidth: 2,
-                fill: false,
-                tension: 0.1,
-                pointRadius: 0,
-                _originalResult: res
-            };
+    const calculateAveragePeak = (iterationData) => {
+        let cumulativePeak = 0, validUrlCount = 0;
+        state.selectedFilters.urls.forEach(url => {
+            if (iterationData.urls[url]) {
+                const urlData = iterationData.urls[url];
+                const peakValue = state.activeMetric === 'rss' ? urlData.peak_rss : 
+                                  state.activeMetric === 'jsheap' ? urlData.peak_jsheap : 
+                                  urlData.peak_pss;
+                cumulativePeak += peakValue || 0;
+                validUrlCount++;
+            }
         });
-
-        let minPeak = Infinity, minIdx = -1;
-        datasets.forEach((ds, idx) => {
-            const res = ds._originalResult;
-            const iteration = res.memory_results[0];
-            let peakSum = 0, count = 0;
-            selectedUrls.forEach(url => {
-                if (iteration.urls[url]) {
-                    peakSum += iteration.urls[url].peak_pss || 0;
-                    count++;
-                }
-            });
-            const avg = count > 0 ? peakSum / count : 0;
-            if (avg > 0 && avg < minPeak) { minPeak = avg; minIdx = idx; }
-        });
-
-        datasets.forEach((ds, idx) => {
-            const isBest = (idx === minIdx);
-            const color = isBest ? 'rgba(255, 159, 64, 1)' : getSeriesColor(idx, false);
-            ds.borderColor = color;
-            ds.backgroundColor = color;
-            if (isBest) { ds.borderWidth = 4; ds.zIndex = 10; }
-        });
-
-        drawChart(datasets, 'Multi Task Comparison (Average of 1st Iteration)');
+        return validUrlCount > 0 ? cumulativePeak / validUrlCount : 0;
     };
 
     /**
-     * Points for a single iteration averaged across selected URLs
+     * Generates XY coordinate points for the time-series chart.
      */
-    const calculateIterationPoints = (iter) => {
-        const activeUrls = Array.from(selectedUrls).filter(url => iter.urls[url]);
+    const generateTimeSeriesData = (iterationData) => {
+        const activeUrls = Array.from(state.selectedFilters.urls).filter(url => iterationData.urls[url]);
         if (activeUrls.length === 0) return [];
-        const maxSamples = Math.max(...activeUrls.map(u => iter.urls[u].samples.length));
-        const pts = [];
-        for (let i = 0; i < maxSamples; i++) {
+        
+        const maxDataPoints = Math.max(...activeUrls.map(u => iterationData.urls[u].samples.length));
+        const chartPoints = [];
+        
+        for (let i = 0; i < maxDataPoints; i++) {
             let sum = 0, count = 0, elapsed = 0;
             activeUrls.forEach(url => {
-                const s = iter.urls[url].samples[i];
-                if (s) { sum += s.pss; elapsed += s.elapsed; count++; }
+                const sample = iterationData.urls[url].samples[i];
+                if (sample) { 
+                    sum += resolveDataPointValue(sample); 
+                    elapsed += sample.elapsed; 
+                    count++; 
+                }
             });
-            if (count > 0) pts.push({ x: elapsed / count, y: sum / count });
+            if (count > 0) chartPoints.push({ x: elapsed / count, y: sum / count });
         }
-        return pts;
+        return chartPoints;
     };
 
-    const calculateAvgPoints = (iter) => calculateIterationPoints(iter);
+    /**
+     * Finds the index of the iteration that represents the Median peak.
+     */
+    const findMedianIterationIndex = (memoryResults) => {
+        if (memoryResults.length === 0) return -1;
+        
+        // Map iterations with their original index and calculated peak
+        const peakMappings = memoryResults.map((iter, idx) => ({
+            originalIndex: idx,
+            peakVal: calculateAveragePeak(iter)
+        }));
 
-    const drawChart = (datasets, title) => {
-        if (pssChart) pssChart.destroy();
-        pssChart = new Chart(ctx, {
+        // Sort by peak value ascending
+        peakMappings.sort((a, b) => a.peakVal - b.peakVal);
+        
+        // Extract median
+        const medianPos = Math.floor(peakMappings.length / 2);
+        return peakMappings[medianPos].originalIndex;
+    };
+
+    // ==========================================
+    // 7. Visualization & Chart Routing
+    // ==========================================
+    const renderMemoryChart = () => {
+        const activeTasks = state.rawPayload.filter(res => state.selectedFilters.taskIds.has(res.id));
+        const chartDatasets = [];
+
+        if (state.viewMode === 'all') {
+            // MODE 1: Compare All (1st Iteration Average) -> Original Orange Highlight Logic
+            let lowestPeak = Infinity, bestTaskIndex = -1;
+            
+            activeTasks.forEach((res, idx) => {
+                const firstIteration = res.memory_results[0];
+                const taskPeak = calculateAveragePeak(firstIteration);
+                
+                chartDatasets.push({
+                    label: res.id,
+                    data: generateTimeSeriesData(firstIteration),
+                    borderColor: getCategoricalColor(idx),
+                    backgroundColor: getCategoricalColor(idx),
+                    borderWidth: 2, fill: false, tension: 0.1, pointRadius: 0,
+                    _peakForEvaluation: taskPeak
+                });
+                
+                // Find the task with the lowest peak
+                if (taskPeak > 0 && taskPeak < lowestPeak) {
+                    lowestPeak = taskPeak;
+                    bestTaskIndex = idx;
+                }
+            });
+
+            // Apply Orange Styling to the Best Task
+            if (bestTaskIndex !== -1) {
+                chartDatasets[bestTaskIndex].borderColor = 'rgba(255, 159, 64, 1)'; // Orange Series
+                chartDatasets[bestTaskIndex].backgroundColor = 'rgba(255, 159, 64, 1)';
+                chartDatasets[bestTaskIndex].borderWidth = 4;
+                chartDatasets[bestTaskIndex].zIndex = 10;
+            }
+
+            drawChartJsInstance(chartDatasets, 'Multi Task Comparison (Average of 1st Iteration)');
+
+        } else if (state.viewMode === 'target') {
+            // MODE 2: Compare Target -> Highlighting Median Iteration
+            let colorIndex = 0;
+            activeTasks.forEach((res) => {
+                const taskColor = getCategoricalColor(colorIndex++);
+                const medianIterIdx = findMedianIterationIndex(res.memory_results);
+
+                res.memory_results.forEach((iter, iterIdx) => {
+                    const isMedian = (iterIdx === medianIterIdx);
+                    
+                    chartDatasets.push({
+                        label: `${res.id} (Iter ${iterIdx + 1}${isMedian ? ' : Median' : ''})`,
+                        data: generateTimeSeriesData(iter),
+                        borderColor: taskColor,
+                        backgroundColor: taskColor,
+                        // Solid & Thick for Median, Dashed & Thin for others
+                        borderDash: isMedian ? [] : [5, 5], 
+                        borderWidth: isMedian ? 4 : 1.5,
+                        fill: false, tension: 0.1, pointRadius: 0,
+                        zIndex: isMedian ? 10 : 0
+                    });
+                });
+            });
+
+            drawChartJsInstance(chartDatasets, `Target Analysis (${activeTasks.length} Tasks, All Iterations)`);
+        }
+    };
+
+    const drawChartJsInstance = (datasets, titleText) => {
+        if (state.memoryChartInstance) state.memoryChartInstance.destroy();
+        
+        const yAxisTitle = state.activeMetric.toUpperCase() + ' (MB)';
+        
+        state.memoryChartInstance = new Chart(uiElements.chartCtx, {
             type: 'line',
             data: { datasets },
             options: {
@@ -346,92 +378,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    title: { display: true, text: title },
-                    tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} MB` } }
+                    title: { display: true, text: titleText, font: { size: 16 } },
                 },
                 scales: {
                     x: { type: 'linear', title: { display: true, text: 'Seconds' } },
-                    y: { title: { display: true, text: 'PSS (MB)' } }
+                    y: { title: { display: true, text: yAxisTitle } }
                 }
             }
         });
     };
 
-    const renderSubFilter = (container, itemsSet, selectedSet, callback) => {
-        container.innerHTML = '';
-        Array.from(itemsSet).sort().forEach(val => {
-            container.appendChild(createCheckboxItem(val, selectedSet.has(val), (checked) => {
-                checked ? selectedSet.add(val) : selectedSet.delete(val);
-                callback();
-            }));
-        });
-    };
-
-    const createCheckboxItem = (label, checked, onChange) => {
-        const wrapper = document.createElement('label');
-        wrapper.className = 'group-item';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = checked;
-        cb.addEventListener('change', (e) => onChange(e.target.checked));
-        wrapper.appendChild(cb);
-        wrapper.appendChild(document.createTextNode(label));
-        return wrapper;
-    };
-
-    const getSeriesColor = (index, isHighlight) => {
-        if (isHighlight) return 'rgba(255, 159, 64, 1)';
+    const getCategoricalColor = (index) => {
         const palette = ['#4a90e2', '#2ecc71', '#9b59b6', '#e74c3c', '#34495e', '#f1c40f', '#1abc9c'];
         return palette[index % palette.length];
     };
 
-    // Bulk actions
-    const setupBulk = (btnId, containerId, select) => {
-        const btn = document.getElementById(btnId);
-        if (btn) {
-            btn.onclick = () => {
-                document.getElementById(containerId).querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                    if (cb.checked !== select) { cb.checked = select; cb.dispatchEvent(new Event('change')); }
+    // ==========================================
+    // 8. Popover UX Binding
+    // ==========================================
+    const bindPopoverBulkActions = () => {
+        const attachBulkEvent = (buttonId, containerKey, isSelectAll) => {
+            const btn = document.getElementById(buttonId);
+            if (!btn) return;
+            btn.addEventListener('click', (e) => {
+                e.preventDefault(); // Keep popover open
+                uiElements.containers[containerKey].querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                    if (checkbox.checked !== isSelectAll) {
+                        checkbox.checked = isSelectAll;
+                        checkbox.dispatchEvent(new Event('change'));
+                    }
                 });
-            };
-        }
+            });
+        };
+
+        attachBulkEvent('selectAllBuild', 'buildFlag', true); attachBulkEvent('deselectAllBuild', 'buildFlag', false);
+        attachBulkEvent('selectAllRuntime', 'runtimeFlag', true); attachBulkEvent('deselectAllRuntime', 'runtimeFlag', false);
+        attachBulkEvent('selectAllPatches', 'patch', true); attachBulkEvent('deselectAllPatches', 'patch', false);
+        attachBulkEvent('selectAllTasks', 'task', true); attachBulkEvent('deselectAllTasks', 'task', false);
     };
 
-    setupBulk('selectAllUrls', 'urlList', true);
-    setupBulk('deselectAllUrls', 'urlList', false);
-    setupBulk('selectAllGroups', 'groupList', true);
-    setupBulk('deselectAllGroups', 'groupList', false);
-    setupBulk('selectAllIters', 'iterationList', true);
-    setupBulk('deselectAllIters', 'iterationList', false);
-    setupBulk('selectAllTasks', 'taskList', true);
-    setupBulk('deselectAllTasks', 'taskList', false);
-
-    const selectB = document.getElementById('selectAllB');
-    if (selectB) {
-        selectB.onclick = () => {
-            ['buildFlagList', 'runtimeFlagList', 'patchList'].forEach(id => {
-                const container = document.getElementById(id);
-                if (container) {
-                    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                        if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
-                    });
-                }
-            });
-        };
-    }
-    const deselectB = document.getElementById('deselectAllB');
-    if (deselectB) {
-        deselectB.onclick = () => {
-            ['buildFlagList', 'runtimeFlagList', 'patchList'].forEach(id => {
-                const container = document.getElementById(id);
-                if (container) {
-                    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                        if (cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
-                    });
-                }
-            });
-        };
-    }
-
+    // run
     init();
 });
+    

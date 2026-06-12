@@ -85,6 +85,77 @@
         color: #e67e22;
         font-weight: bold;
     }
+
+    .top-controls-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        margin-bottom: 20px;
+        padding: 15px;
+    }
+    
+    .panel-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 20px;
+    }
+
+    .left-toggles-section {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .popover-dropdown {
+        position: relative;
+        display: inline-block;
+    }
+    
+    .popover-dropdown summary {
+        list-style: none;
+        padding: 6px 12px;
+        background-color: #f8f9fa;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.9rem;
+        user-select: none;
+    }
+    
+    .popover-dropdown summary::-webkit-details-marker {
+        display: none;
+    }
+    
+    .popover-content {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        margin-top: 5px;
+        background-color: white;
+        min-width: 280px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 10px;
+        z-index: 1000;
+    }
+    
+    .popover-dropdown[open] .popover-content {
+        display: block;
+    }
+
+    .popover-buttons {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 8px;
+    }
+
 </style>
 {% endblock %}
 
@@ -93,95 +164,99 @@
     <h1>Memory Statistics Analysis</h1>
 </div>
 
+<div class="card top-controls-panel">
+    <div class="panel-row" style="border-bottom: 1px solid #eee; padding-bottom: 10px;">
+        <div>
+            <strong style="margin-right: 10px;">View Mode:</strong>
+            <input type="radio" id="modeAll" name="viewMode" value="all" checked>
+            <label for="modeAll">Compare All</label>
+            &nbsp;&nbsp;
+            <input type="radio" id="modeTarget" name="viewMode" value="target">
+            <label for="modeTarget">Compare Target</label>
+        </div>
+        
+        <div>
+            <strong style="margin-right: 10px;">Metric:</strong>
+            <input type="radio" id="metricPSS" name="metric" value="pss" checked>
+            <label for="metricPSS">PSS</label>
+            &nbsp;&nbsp;
+            <input type="radio" id="metricRSS" name="metric" value="rss">
+            <label for="metricRSS">RSS</label>
+            &nbsp;&nbsp;
+            <input type="radio" id="metricJS" name="metric" value="jsheap">
+            <label for="metricJS">JSHeapSize</label>
+        </div>
+    </div>
+
+    <div class="panel-row">
+        
+        <div class="left-toggles-section">
+            <div style="display: flex; align-items: baseline; gap: 10px;">
+                <strong style="min-width: 60px;">Groups:</strong>
+                <div id="groupList" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
+            </div>
+            <div style="display: flex; align-items: baseline; gap: 10px;">
+                <strong style="min-width: 60px;">URLs:</strong>
+                <div id="urlList" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            
+            <details class="popover-dropdown">
+                <summary>Build Flags ▾</summary>
+                <div class="popover-content">
+                    <div class="popover-buttons">
+                        <button id="selectAllBuild" class="btn btn-sm btn-secondary">Select All</button>
+                        <button id="deselectAllBuild" class="btn btn-sm btn-secondary">Deselect All</button>
+                    </div>
+                    <div id="buildFlagList" class="sub-filter-list" style="max-height: 200px; overflow-y: auto;"></div>
+                </div>
+            </details>
+
+            <details class="popover-dropdown">
+                <summary>Runtime Flags ▾</summary>
+                <div class="popover-content">
+                    <div class="popover-buttons">
+                        <button id="selectAllRuntime" class="btn btn-sm btn-secondary">Select All</button>
+                        <button id="deselectAllRuntime" class="btn btn-sm btn-secondary">Deselect All</button>
+                    </div>
+                    <div id="runtimeFlagList" class="sub-filter-list" style="max-height: 200px; overflow-y: auto;"></div>
+                </div>
+            </details>
+
+            <details class="popover-dropdown">
+                <summary>Patches ▾</summary>
+                <div class="popover-content">
+                    <div class="popover-buttons">
+                        <button id="selectAllPatches" class="btn btn-sm btn-secondary">Select All</button>
+                        <button id="deselectAllPatches" class="btn btn-sm btn-secondary">Deselect All</button>
+                    </div>
+                    <div id="patchList" class="sub-filter-list" style="max-height: 200px; overflow-y: auto;"></div>
+                </div>
+            </details>
+
+            <details class="popover-dropdown">
+                <summary>Individual Tasks ▾</summary>
+                <div class="popover-content">
+                    <div class="popover-buttons">
+                        <button id="selectAllTasks" class="btn btn-sm btn-secondary">Select All</button>
+                        <button id="deselectAllTasks" class="btn btn-sm btn-secondary">Deselect All</button>
+                    </div>
+                    <div id="taskList" class="task-filter-list" style="max-height: 200px; overflow-y: auto;"></div>
+                </div>
+            </details>
+
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <div class="stats-chart-container">
         <canvas id="pssTimeSeriesChart"></canvas>
     </div>
     <div class="legend-info">
         * <span class="highlight-label">Orange series</span> indicates the data with the lowest peak PSS in the evaluation phase.
-    </div>
-</div>
-
-<div class="stats-controls-column">
-    <!-- Target URLs -->
-    <div class="filter-section card">
-        <div class="filter-header">
-            <h3>Target URLs</h3>
-            <div>
-                <button id="selectAllUrls" class="btn btn-sm btn-secondary">Select All</button>
-                <button id="deselectAllUrls" class="btn btn-sm btn-secondary">Deselect All</button>
-            </div>
-        </div>
-        <div id="urlList" class="group-list">
-            <!-- Populated by JS -->
-        </div>
-    </div>
-
-    <!-- Group Filter -->
-    <div class="filter-section card">
-        <div class="filter-header">
-            <h3>Group Filters</h3>
-            <div>
-                <button id="selectAllGroups" class="btn btn-sm btn-secondary">Select All</button>
-                <button id="deselectAllGroups" class="btn btn-sm btn-secondary">Deselect All</button>
-            </div>
-        </div>
-        <div id="groupList" class="group-list">
-            <!-- Populated by JS -->
-        </div>
-    </div>
-
-    <!-- Flags & Patches (Stacked Vertically) -->
-    <div class="filter-section card">
-        <div class="filter-header">
-            <h3>Flags & Patches</h3>
-            <div>
-                <button id="selectAllB" class="btn btn-sm btn-secondary">Select All</button>
-                <button id="deselectAllB" class="btn btn-sm btn-secondary">Deselect All</button>
-            </div>
-        </div>
-        <div class="b-filters-container">
-            <div class="b-col">
-                <p><strong>Build Flags</strong></p>
-                <div id="buildFlagList" class="sub-filter-list"></div>
-            </div>
-            <div class="b-col">
-                <p><strong>Runtime Flags</strong></p>
-                <div id="runtimeFlagList" class="sub-filter-list"></div>
-            </div>
-            <div class="b-col">
-                <p><strong>Code Patches</strong></p>
-                <div id="patchList" class="sub-filter-list"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Individual Tasks -->
-    <div class="filter-section card">
-        <div class="filter-header">
-            <h3>Individual Tasks</h3>
-            <div>
-                <button id="selectAllTasks" class="btn btn-sm btn-secondary">Select All</button>
-                <button id="deselectAllTasks" class="btn btn-sm btn-secondary">Deselect All</button>
-            </div>
-        </div>
-        <div id="taskList" class="task-filter-list">
-            <!-- Populated by JS -->
-        </div>
-    </div>
-
-    <!-- Iteration Filters (Moved to the bottom) -->
-    <div id="iterationFilterSection" class="filter-section card iteration-section">
-        <div class="filter-header">
-            <h3>Iteration Filters</h3>
-            <div>
-                <button id="selectAllIters" class="btn btn-sm btn-secondary">Select All</button>
-                <button id="deselectAllIters" class="btn btn-sm btn-secondary">Deselect All</button>
-            </div>
-        </div>
-        <div id="iterationList" class="group-list">
-            <!-- Populated by JS -->
-        </div>
     </div>
 </div>
 {% endblock %}
