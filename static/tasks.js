@@ -475,11 +475,11 @@ function generateCombinations(fBT, fRT, gId) {
     const usedInBatch = new Set();
 
     // Independent 5-dimensional Cartesian product
-    for (const bt of btSets) {
-        for (const sb of sbOpts) {
-            for (const rt of rtSets) {
-                for (const sr of srOpts) {
-                    for (const p of pOpts) {
+    for (const p of pOpts) {
+        for (const bt of btSets) {
+            for (const sb of sbOpts) {
+                for (const rt of rtSets) {
+                    for (const sr of srOpts) {
                         const finalBT = [...fBT, ...bt, ...sb];
                         const finalRT = [...fRT, ...rt, ...sr];
                         const finalPatch = p || null;
