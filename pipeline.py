@@ -802,6 +802,30 @@ class ChromiumPipeline:
             self.current_patch_id = None
             return None
 
+        repeats = self.settings.get('default_repeats', 5)
+        self._update_status(f"Task {feature['id']}: Starting Measurement")
+        memory_results = self.measure_memory(feature.get('runtime_flags', []), repeats=repeats)
+
+        if not memory_results:
+            self._update_status(f"Task {feature['id']}: Measurement Failed")
+            return None
+
+        # Build final result object
+        result = {
+            "id": feature['id'],
+            "group_id": feature.get('group_id'),
+            "timestamp": time.time(),
+            "build_time": build_time,
+            "build_flags": feature.get('build_flags', []),
+            "runtime_flags": feature.get('runtime_flags', []),
+            "patch": feature.get('patch'),
+            "memory_results": memory_results
+        }
+        
+        self.save_result(result)
+        self._update_status(f"Task {feature['id']}: Completed Successfully")
+        return result
+
     def save_build_log(self, feature_id, success, build_time, log, build_flags):
         """
         Records the outcome of a build attempt, including the full console output.
@@ -846,29 +870,6 @@ class ChromiumPipeline:
                 logging.error(f"Failed to clear build logs: {e}")
                 return False
         return True
-
-    def save_result(self, result):
-        repeats = self.settings.get('default_repeats', 5)
-        self._update_status(f"Task {feature['id']}: Starting Measurement")
-        memory_results = self.measure_memory(feature.get('runtime_flags', []), repeats=repeats)
-
-        if not memory_results:
-            self._update_status(f"Task {feature['id']}: Measurement failed. Not saving.")
-            return None
-
-        self._update_status(f"Task {feature['id']}: Completed")
-        final_result = {
-            "id": feature['id'],
-            "group_id": feature.get('group_id'),
-            "build_time": build_time,
-            "build_flags": feature.get('build_flags', []),
-            "runtime_flags": feature.get('runtime_flags', []),
-            "patch": patch_val,
-            "memory_results": memory_results,
-            "timestamp": time.time()
-        }
-        self.save_result(final_result)
-        return final_result
 
     def save_result(self, result):
         """
@@ -979,4 +980,5 @@ class ChromiumPipeline:
                 self._persistent_ssh.close()
                 self._persistent_ssh = None
             return {"status": "disconnected"}
+
 
