@@ -171,15 +171,42 @@ class ChromiumPipeline:
 
     @property
     def current_patch_id(self):
-        """Returns the currently recorded patch for the current environment."""
-        return self.settings['patch_states'].get(self._get_state_key())
+        """Returns the currently recorded patch for the current environment from a marker file."""
+        marker = ".dashboard_applied_patch"
+        if self.use_ssh:
+            success, _, stdout = self._run_ssh_command(f"cat {marker} 2>/dev/null || true")
+            if success and stdout and stdout.strip():
+                return stdout.strip()
+        else:
+            local_marker = os.path.join(self.local_chromium_path, marker) if self.local_chromium_path else ""
+            if local_marker and os.path.exists(local_marker):
+                try:
+                    with open(local_marker, 'r') as f:
+                        val = f.read().strip()
+                        if val: return val
+                except: pass
+        return None
 
     @current_patch_id.setter
     def current_patch_id(self, value):
-        """Updates and persists the patch state for the current environment."""
-        key = self._get_state_key()
-        self.settings['patch_states'][key] = value
-        self._save_settings()
+        """Updates and persists the patch state for the current environment via a marker file."""
+        marker = ".dashboard_applied_patch"
+        if self.use_ssh:
+            if value is None:
+                self._run_ssh_command(f"rm -f {marker}")
+            else:
+                safe_val = str(value).replace("'", "'\\''")
+                self._run_ssh_command(f"echo '{safe_val}' > {marker}")
+        else:
+            local_marker = os.path.join(self.local_chromium_path, marker) if self.local_chromium_path else ""
+            if local_marker:
+                try:
+                    if value is None:
+                        if os.path.exists(local_marker): os.remove(local_marker)
+                    else:
+                        with open(local_marker, 'w') as f:
+                            f.write(str(value))
+                except: pass
 
     def _save_settings(self):
         """
@@ -723,6 +750,10 @@ class ChromiumPipeline:
         """
         target_patch_path = self._resolve_patch_path(patch_val)
         
+        if patch_val and not target_patch_path:
+            self._update_status(f"Error: Requested patch '{patch_val}' could not be found locally.")
+            return False
+        
         # 1. Skip if already applied
         if self.current_patch_id == target_patch_path:
             self._update_status(f"Patch {patch_val or 'None'} already applied. Skipping.")
@@ -731,8 +762,8 @@ class ChromiumPipeline:
         self._update_status(f"Managing patches: Transitioning from {self.current_patch_id} to {target_patch_path}")
 
         # 2. Cleanup: Hard reset source tree to a clean state
-        # This removes any previous patches or uncommitted changes.
-        cleanup_cmd = "git checkout -- . && git clean -df"
+        # This removes any previous patches or uncommitted changes safely.
+        cleanup_cmd = "git reset --hard HEAD && git clean -df"
         cwd = self.ssh_config.get('chromium_path') if self.use_ssh else self.local_chromium_path
         
         success, _, _ = self.run_command(cleanup_cmd, cwd=cwd)
@@ -748,8 +779,10 @@ class ChromiumPipeline:
                 ssh = self._get_ssh_client()
                 if not ssh: return False
                 try:
+                    import uuid
                     sftp = ssh.open_sftp()
-                    remote_patch_tmp = f"/tmp/{os.path.basename(target_patch_path)}"
+                    unique_id = uuid.uuid4().hex[:8]
+                    remote_patch_tmp = f"/tmp/{os.path.basename(target_patch_path)}_{unique_id}.patch"
                     sftp.put(target_patch_path, remote_patch_tmp)
                     sftp.close()
                     
@@ -758,7 +791,7 @@ class ChromiumPipeline:
                     ssh.close()
                 except Exception as e:
                     self._update_status(f"SSH Patch transfer failed: {e}")
-                    ssh.close()
+                    if ssh: ssh.close()
                     return False
             else:
                 # Local: Apply directly
