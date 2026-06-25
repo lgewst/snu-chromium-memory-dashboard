@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             if (data.is_running) {
                 // Show detailed status (e.g., "Building", "Measuring URL...") next to the task ID
-                statusDiv.innerText = `Status: ${data.detailed_status || 'Running'} (${data.current_task || 'initializing'})`;
+                statusDiv.innerText = `Status: ${data.detailed_status || 'Running'} (Task ${data.current_task || 'initializing'})`;
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
             } else {
