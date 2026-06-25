@@ -1,76 +1,64 @@
 [
   {
-    "build_flags": [],
     "id": "1",
-    "runtime_flags": [
-      "--enable-low-end-device-mode"
-    ]
-  },
-  {
+    "group_id": "tmp",
     "build_flags": [],
-    "id": "2",
     "runtime_flags": [
       "--single-process"
-    ]
+    ],
+    "patch": null
   },
   {
+    "id": "2",
+    "group_id": "tmp",
     "build_flags": [],
+    "runtime_flags": [
+      "--single-process",
+      "--renderer-process-limit=1"
+    ],
+    "patch": null
+  },
+  {
     "id": "3",
+    "group_id": "tmp",
+    "build_flags": [],
     "runtime_flags": [
-      "--no-sandbox",
-      "--no-zygote"
-    ]
+      "--single-process",
+      "--disable-features=SitePerProcess"
+    ],
+    "patch": null
   },
   {
-    "build_flags": [],
     "id": "4",
+    "group_id": "tmp",
+    "build_flags": [],
     "runtime_flags": [
-      "--disable-remote-fonts"
-    ]
+      "--single-process",
+      "--disable-threaded-scrolling",
+      "--disable-threaded-compositing"
+    ],
+    "patch": null
   },
   {
-    "build_flags": [],
     "id": "5",
+    "group_id": "tmp",
+    "build_flags": [],
     "runtime_flags": [
-      "--single-threaded"
-    ]
+      "--single-process",
+      "--v8-flags=\"--stress-compaction\""
+    ],
+    "patch": null
   },
   {
-    "build_flags": [],
     "id": "6",
-    "patch": null,
+    "group_id": "tmp",
+    "build_flags": [
+      "use_partition_alloc_as_malloc=true",
+      "enable_backup_ref_ptr_support=false"
+    ],
     "runtime_flags": [
-      "--memory-balancer"
-    ]
-  },
-  {
-    "build_flags": [],
-    "id": "7",
-    "patch": null,
-    "runtime_flags": [
-      "--max_heap_size=64"
-    ]
-  },
-  {
-    "build_flags": [
-      "enable_nacl=false"
+      "--single-process"
     ],
-    "id": "8",
-    "runtime_flags": []
-  },
-  {
-    "build_flags": [
-      "v8_enable_i18n_support=false"
-    ],
-    "id": "9",
-    "runtime_flags": []
-  },
-  {
-    "build_flags": [
-      "enable_extensions=false"
-    ],
-    "id": "10",
-    "patch": null,
-    "runtime_flags": []
+    "patch": null
   }
 ]

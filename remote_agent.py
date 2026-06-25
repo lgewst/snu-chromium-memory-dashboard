@@ -1,17 +1,24 @@
 import json
 import time
-import psutil
 import os
 import sys
 import threading
+import subprocess
 
-try:
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
-except ImportError as e:
-    print(f"---ERROR---: Required Python module missing: {e}. Please run 'pip install selenium psutil' on the remote server.")
-    sys.exit(1)
+def _install_package(package):
+    try:
+        __import__(package)
+    except ImportError:
+        print(f"Installing {package}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+_install_package('psutil')
+_install_package('selenium')
+
+import psutil
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 
 def get_mem(pid):
     """
