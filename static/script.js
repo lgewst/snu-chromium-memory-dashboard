@@ -220,6 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${medianPeak}</td>
                 <td>${res.build_flags.join(' ') || '-'}</td>
                 <td>${res.runtime_flags.join(' ') || '-'}</td>
+                <td>${res.patch || '-'}</td>
                 <td>${new Date(res.timestamp * 1000).toLocaleString()}</td>
             `;
             resultsTableBody.appendChild(row);
