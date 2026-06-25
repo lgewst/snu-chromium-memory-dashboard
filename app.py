@@ -232,23 +232,56 @@ def get_features():
 
 @app.route('/api/features', methods=['POST'])
 def save_features():
-    """Updates the entire memory_features.json file and syncs group_id to results."""
+    """Updates the entire memory_features.json file, syncs group_id, and deletes perfectly matching test_results."""
     try:
         features = request.json
+        
+        old_features = []
+        if os.path.exists('memory_features.json'):
+            try:
+                with open('memory_features.json', 'r') as f:
+                    old_features = json.load(f)
+            except:
+                pass
+                
+        new_ids = {str(f.get('id')) for f in features if f.get('id') is not None}
+        deleted_features = [f for f in old_features if str(f.get('id')) not in new_ids]
+
         with open('memory_features.json', 'w') as f:
             json.dump(features, f, indent=2)
         
-        # Sync group_id to test_results.json if it exists
+        # Sync group_id and handle deleted tasks in test_results.json
         if os.path.exists('test_results.json'):
-            with open('test_results.json', 'r') as f:
-                results = json.load(f)
+            try:
+                with open('test_results.json', 'r') as f:
+                    results = json.load(f)
+            except:
+                results = []
+            
+            updated = False
+            
+            if deleted_features:
+                new_results = []
+                for res in results:
+                    to_delete = False
+                    for df in deleted_features:
+                        if str(res.get('id')) == str(df.get('id')) and \
+                           res.get('build_flags', []) == df.get('build_flags', []) and \
+                           res.get('runtime_flags', []) == df.get('runtime_flags', []) and \
+                           res.get('patch') == df.get('patch'):
+                            to_delete = True
+                            break
+                    if not to_delete:
+                        new_results.append(res)
+                    else:
+                        updated = True
+                results = new_results
             
             # Create a mapping of id -> group_id from the new features list
             group_mapping = {str(feat['id']): feat.get('group_id') for feat in features}
             
-            updated = False
             for res in results:
-                res_id = str(res['id'])
+                res_id = str(res.get('id'))
                 if res_id in group_mapping:
                     new_group = group_mapping[res_id]
                     if res.get('group_id') != new_group:
